@@ -1,0 +1,61 @@
+# ---------------------------------------------------------------------------
+# Bootstrap order (the chicken-and-egg part)
+# ---------------------------------------------------------------------------
+#
+#   1. Install ArgoCD itself -- it can't deploy itself from a repo it isn't
+#      running yet to watch:
+#
+#        kubectl create namespace argocd
+#        kubectl apply -n argocd -f \
+#          https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+#
+#   2. Get the initial admin password:
+#
+#        kubectl -n argocd get secret argocd-initial-admin-secret \
+#          -o jsonpath='{.data.password}' | base64 -d
+#
+#   3. Reach the UI. Simplest first step is a port-forward from your laptop:
+#
+#        kubectl -n argocd port-forward svc/argocd-server 8080:443
+#
+#      (an Ingress for ArgoCD itself is a good follow-up task -- it needs
+#      either --insecure on argocd-server or a Traefik TLS passthrough route,
+#      which is a useful thing to have fought with once.)
+#
+#   4. Apply this file:
+#
+#        kubectl apply -f clusters/homelab/argocd-bootstrap.yaml
+#
+#   5. In the UI, sync `homelab-bootstrap`.
+#
+# This repo is public, so ArgoCD needs no credentials to read it. If you ever
+# want to make your clone private, register a deploy key or PAT under Settings -> Repositories.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: homelab-bootstrap
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/richieinthecloud/homelab
+    targetRevision: main
+    path: infra/argocd/applications
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd # Application objects live alongside ArgoCD itself
+
+  syncPolicy:
+    # Manuel syncs for now.
+    #
+    # Worth knowing for later: automating *this* Application is the usual
+    # compromise -- it only ever creates Application objects, never workloads,
+    # so new apps appear in the UI on their own while each still waits for you
+    # to sync it.
+    syncOptions:
+      - CreateNamespace=false # argocd namespace already exists by step 1

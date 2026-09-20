@@ -1,0 +1,34 @@
+# Kustomize entrypoint for the galaga app.
+#
+# ArgoCD sees a kustomization.yaml in this directory and runs `kustomize build`
+# instead of just applying loose YAML. Today that mostly just concatenates the
+# files below, but it gives us one place to add overlays, image tag overrides
+# or common labels later without touching every manifest.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: galaga
+
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+
+# `labels` with includeSelectors:false, not the older `commonLabels`.
+# commonLabels injects into Deployment selectors too, and selectors are
+# immutable -- changing a common label later would force you to delete and
+# recreate every Deployment. These are descriptive labels, not identity.
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/managed-by: argocd
+
+# When the app repo publishes a new tag, this is the one line that changes.
+# `kustomize edit set image ghcr.io/richieinthecloud/galaga=...:v2` updates it,
+# and that commit is what ArgoCD reconciles.
+images:
+  - name: ghcr.io/richieinthecloud/html-galaga
+    newTag: v1.0.0

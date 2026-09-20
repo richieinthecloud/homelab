@@ -1,0 +1,14 @@
+# Every workload in this repo gets its own namespace.
+# Namespaces are the cheapest isolation boundary Kubernetes gives you:
+# they scope names, RBAC, quotas and NetworkPolicies without needing a second cluster.
+#
+# ArgoCD creates this for us on sync, because the Application for 
+# galaga lists this file as part of its kustomization.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: galaga
+  labels:
+    app.kubernetes.io/name: galaga
+    app.kubernetes.io/part-of: homelab
