@@ -1,0 +1,15 @@
+# Entrypoint for the app-of-apps Application defined in
+# clusters/homelab/argocd-bootstrap.yaml.
+#
+# Adding a new workload to the cluster is now a two-step change in one commit:
+#   1. write the manifests under apps/<name>/
+#   2. add an Application here and list it below
+# The bootstrap Application picks it up on the next sync.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: argocd
+
+resources:
+  - galaga-app.yaml

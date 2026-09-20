@@ -1,0 +1,27 @@
+# Service gives the group of galaga pods one stable in-cluster address.
+# Pods come and go with their own IPs; 
+# this name (galaga.galaga.svc.cluster.local) does not.
+#
+# Type is ClusterIP, not LoadBalancer, on purpose:
+# k3s ships ServiceLB (klipper-lb), and k3s's own Traefik already 
+# claims host ports 80/443. A second LoadBalancer Service asking for 
+# port 80 would sit pending forever on a port conflict. So we stay 
+# internal here and let Traefik route inbound traffic via the 
+# Ingress in this folder.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: galaga
+  namespace: galaga
+  labels:
+    app.kubernetes.io/name: galaga
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: galaga # send traffic to every pod carrying this label
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80         # port the Service listens on
+      targetPort: http # named port on the container

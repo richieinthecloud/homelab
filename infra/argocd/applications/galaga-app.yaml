@@ -1,0 +1,43 @@
+# An ArgoCD Application is the object that says "this Git path should be
+# running in this cluster". ArgoCD watches the source, renders it, diffs it
+# against the live cluster, and reports OutOfSync when they differ.
+#
+# This file does NOT live in apps/galaga/ on purpose. The Application is
+# cluster-management config; the manifests under apps/ are the workload. Keeping
+# them apart is what lets the app-of-apps pattern in clusters/homelab/ work.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: galaga
+  # Applications themselves always live in the namespace ArgoCD runs in,
+  # regardless of where the workload they manage ends up.
+  namespace: argocd
+  finalizers:
+    # Without this, deleting the Application leaves its workloads orphaned in
+    # the cluster. With it, ArgoCD cascades the delete down to the resources.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/richieinthecloud/homelab
+    targetRevision: main
+    path: apps/galaga # kustomization.yaml in here is the entrypoint
+
+  destination:
+    # "the cluster ArgoCD itself is running in".
+    server: https://kubernetes.default.svc
+    namespace: galaga
+
+  syncPolicy:
+    # Deliberately NOT `automated:` block. Manual sync means ArgoCD will show you
+    # the diff and wait for you to press Sync. Self-heal and auto-prune
+    # are great once you trust the pipeline, and alarming before then.
+    #
+    # To turn it on later, add:
+    #   automated:
+    #     prune: true      # delete resources removed from git
+    #     selfHeal: true   # revert manual kubectl changes back to git state
+    syncOptions:
+      - CreateNamespace=true # belt-and-braces; namespace.yaml also creates it
