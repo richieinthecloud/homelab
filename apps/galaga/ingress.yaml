@@ -1,16 +1,10 @@
 # Ingress is how traffic actually gets *into* the cluster.
 #
-# This file isn't in the original repo outline, but without it nothing outside
-# the cluster can reach galaga: the Service is ClusterIP-only, and k3s's bundled
-# Traefik is already holding ports 80/443 on the nodes. Traefik reads Ingress
-# objects and routes by hostname, so this is the intended door.
+# Without this, nothing outside the cluster can reach galaga: 
+# the Service is ClusterIP-only, and k3s's bundled Traefik is already holding ports 80/443 on the nodes. 
+# Traefik reads Ingress objects and routes by hostname, so this is the intended door.
 #
-# To reach it from a machine on the LAN, point the hostname at the
-# control-plane node's IP -- either in your router's DNS or in /etc/hosts:
-#
-#   192.168.x.x  galaga.homelab.local
-#
-# (swap in the real IP of ubuntu-dell-7430)
+
 
 apiVersion: networking.k8s.io/v1
 kind: Ingress
