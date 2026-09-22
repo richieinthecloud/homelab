@@ -51,11 +51,24 @@ spec:
     namespace: argocd # Application objects live alongside ArgoCD itself
 
   syncPolicy:
-    # Manuel syncs for now.
-    #
-    # Worth knowing for later: automating *this* Application is the usual
-    # compromise -- it only ever creates Application objects, never workloads,
-    # so new apps appear in the UI on their own while each still waits for you
-    # to sync it.
+    automated: # Delete Applications that are removed from our code.
+      # this Application manages other Applications that are highlighted in infra/argocd/applications/kustomization.yaml
+      # deleting Applications from there will lead cause it to be dropped from the cluster. The repo is now the single source of truth
+      # must be very careful to not take anything offline
+      prune: true
+      # Revert any and every change not made within the repo
+      selfheal: true
+      # Refuse to sync if the rendered output is empty. Cheap insurance against a bad commit or a broken kustomization pruning the whole cluster
+      allowEmpty: false
+    
+    retry: 
+      # automated syncs happen unattended, so a transient failure (node reboot, registry hiccup)
+      # should back off and retry rather than just sitting in a failed state
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+        
     syncOptions:
       - CreateNamespace=false # argocd namespace already exists by step 1
