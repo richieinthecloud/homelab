@@ -29,7 +29,8 @@ spec:
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: ScheduleAnyway
           matchLabelKeys:
-            - pod-template-hash # Pod scheduling calculations were thrown off because old pods were being taken into consideration when scheduling new ones.
+            - pod-template-hash 
+            # Pod scheduling calculations were thrown off because old pods were being taken into consideration when scheduling new ones.
             # pod-template-hash prevents that from occurring. should help in evenly distributing pods across all nodes in the cluster. 
           labelSelector:
             matchLabels:
