@@ -57,7 +57,7 @@ spec:
       # must be very careful to not take anything offline
       prune: true
       # Revert any and every change not made within the repo
-      selfheal: true
+      selfHeal: true
       # Refuse to sync if the rendered output is empty. Cheap insurance against a bad commit or a broken kustomization pruning the whole cluster
       allowEmpty: false
     
@@ -69,6 +69,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-        
+
     syncOptions:
       - CreateNamespace=false # argocd namespace already exists by step 1
