@@ -21,7 +21,7 @@ All three nodes run **Ubuntu Server 24.04**, accessed remotely via SSH (key-base
 - **k3s** lightweight Kubernetes distribution, chosen for its low resource footprint (ideal for older/modest hardware) and simple single-binary install
 - **containerd**: the container runtime bundled with k3s (no Docker required on the cluster nodes themselves)
 - **Traefik**: ingress controller, bundled with k3s, handling routing into the cluster
-- **ArgoCD**: GitOps continuous delivery tool, watching this repo and reconciling cluster state against it. Running in **manual sync** mode for now, while still building confidence in the workflow
+- **ArgoCD**: GitOps continuous delivery tool, watching this repo and reconciling cluster state against it. Syncs **automatically**, with prune and self-heal enabled
 - **Kubernetes manifests**: plain YAML to start, with a planned migration to **Helm charts** once the underlying patterns are second nature
 - **GitHub**: source of truth for all infrastructure/deployment config
 
