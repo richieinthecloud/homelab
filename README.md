@@ -12,8 +12,9 @@ The guiding principle: **learn by running real workloads on real hardware**, usi
 |---|---|---|
 | `ubuntu-dell-7430` | Dell Latitude 7430 | Control-plane |
 | `ubuntu-macbook-pro` | 2013 MacBook Pro | Worker |
+| `ubuntu-optiplex` | Optiplex 5050 | Worker |
 
-Both nodes run **Ubuntu Server 24.04**, accessed remotely via SSH (key-based auth, separate keys per node). The MacBook Pro runs headless with lid-close suspend disabled so it stays reachable at all times.
+All three nodes run **Ubuntu Server 24.04**, accessed remotely via SSH (key-based auth, separate keys per node). The MacBook Pro runs headless with lid-close suspend disabled so it stays reachable at all times.
 
 ## Tools & Stack
 
