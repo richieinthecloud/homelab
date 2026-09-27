@@ -19,7 +19,7 @@ metadata:
   name: longhorn
   namespace: argocd
   # If this Application is ever removed from the kustomization, the bootstrap app prunes
-  # the Applicatiob object but Longhorn itself is left running untouched. Uninstalling 
+  # the Application object but Longhorn itself is left running untouched. Uninstalling 
   # storage should be a deliberate, manual act.
 spec: 
   project: default
@@ -27,7 +27,7 @@ spec:
   source: 
     repoURL: https://charts.longhorn.io
     chart: longhorn
-    targetRevision: 1.12.1
+    targetRevision: 1.12.1 # upgrade happens one minor version at a time. This will be changed frequently.
     helm: 
       valuesObject: 
         preUpgradeChecker:
@@ -57,7 +57,7 @@ spec:
             v2: "2"
           # if a node dies, delete the stuck pod so it can reschedule and reattach
           # its volume on the surviving node instead of hanging in 'Terminating'
-          nodeDownPodDeletionPolicy: delete-both-statefulset-and-deplyoment-pod
+          nodeDownPodDeletionPolicy: delete-both-statefulset-and-deployment-pod
         
         longhornUI: 
           # default is 2. One is plenty for a homelab and saves memory on hardware
