@@ -1,0 +1,81 @@
+# Longhorn provides distrubuted block storage for the cluster. Every PVC that asks for 
+# storageClassName: Longhorn will get a volume that is replicated across the storage nodes,
+# so losing one node doesn't lose the data
+
+# Unlike Galaga, there are no manifests under 'apps/'. ArgoCD pulls the official Helm
+# chart straight from charts.longhorn.io and renders it with the values below. The
+# chart version pinned here is the one line that changes on upgrade. Longhorn only supports
+# upgrading one minor version at a time. 
+
+# Before the first sync: 
+# 1. Every node needs open-iscsi + nfs-common, iscsid running, and multipathd
+# 2. Storage nodes need the label node.longhorn.io/create-default-disk=true. 
+# Longhorn only reads it when it first sees a node, so label BEFORE syncing. 
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: longhorn
+  namespace: argocd
+  # If this Application is ever removed from the kustomization, the bootstrap app prunes
+  # the Applicatiob object but Longhorn itself is left running untouched. Uninstalling 
+  # storage should be a deliberate, manual act.
+spec: 
+  project: default
+
+  source: 
+    repoURL: https://charts.longhorn.io
+    chart: longhorn
+    targetRevision: 1.12.1
+    helm: 
+      valuesObject: 
+        preUpgradeChecker:
+          # the chart asks for this to be off when installed by ArgoCD/GitOps
+          jobEnabled: false
+
+        persistence:
+          # k3s already ships local-path as the default StorageClass. Two defaults
+          # make PVCs without a storageClassName land somewhere unpredictable, so
+          # Longhorn stays opt-in: workloads must ask for it by name. 
+          defaultClass: false
+          # one replica per storage node. 3 (the default) can not be satisfied 
+          # with two storage nodes and every volume would sit 'Degraded'.
+          defaultClassReplicaCount: 2
+          # deleting a PVC keeps the underlying volume and its data around until
+          # someone removes it by hand. Insurance for the photos. 
+          reclaimPolicy: Retain
+        
+        defaultSettings: 
+          # only nodes labeled 'node.longhorn.io/create-default-disk=true' store replicas
+          # Longhorn still runs on every node so pods can mount volumes anywhere
+          # This only controls where the data physically lives.
+          createDefaultDiskLabeledNodes: true
+          # same as defaultClassReplicaCount, but for volumes made in the longhorn ui
+          defaultReplicaCount: 
+            v1: "2"
+            v2: "2"
+          # if a node dies, delete the stuck pod so it can reschedule and reattach
+          # its volume on the surviving node instead of hanging in 'Terminating'
+          nodwDownPodDeletionPolicy: delete-both-statefulset-and-deplyoment-pod
+        
+        longhornUI: 
+          # default is 2. One is plenty for a homelab and saves memory on hardware
+          replicas: 1
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: longhorn-system # longhorn requires this exact namespace name
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      limit: 5
+      backoff: 
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
