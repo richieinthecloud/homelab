@@ -1,5 +1,5 @@
 # Longhorn provides distrubuted block storage for the cluster. Every PVC that asks for 
-# storageClassName: Longhorn will get a volume that is replicated across the storage nodes,
+# storageClassName: longhorn will get a volume that is replicated across the storage nodes,
 # so losing one node doesn't lose the data
 
 # Unlike Galaga, there are no manifests under 'apps/'. ArgoCD pulls the official Helm
