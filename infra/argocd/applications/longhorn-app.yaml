@@ -9,6 +9,7 @@
 
 # Before the first sync: 
 # 1. Every node needs open-iscsi + nfs-common, iscsid running, and multipathd
+# told to leave sd* devices alone. 'longhornctl check preflight' verifies it.
 # 2. Storage nodes need the label node.longhorn.io/create-default-disk=true. 
 # Longhorn only reads it when it first sees a node, so label BEFORE syncing. 
 
@@ -56,7 +57,7 @@ spec:
             v2: "2"
           # if a node dies, delete the stuck pod so it can reschedule and reattach
           # its volume on the surviving node instead of hanging in 'Terminating'
-          nodwDownPodDeletionPolicy: delete-both-statefulset-and-deplyoment-pod
+          nodeDownPodDeletionPolicy: delete-both-statefulset-and-deplyoment-pod
         
         longhornUI: 
           # default is 2. One is plenty for a homelab and saves memory on hardware
