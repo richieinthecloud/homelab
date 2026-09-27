@@ -1,0 +1,60 @@
+# This is a manual test of Longhorn. Not managed by Argo so after testing, 
+# and proving the storage works, we can delete it. 
+
+# sudo kubectl apply -f clusters/homelab/longhorn-smoke-test.yaml
+# sudo kubectl -n longhorn-test get pvc # satus should be Bound
+
+# Prove dats survives the pod going away:
+#  sudo kubectl -n longhorn-test exec volume-test -- sh -c 'echo hello > /data/test.txt'
+#  sudo kubectl -n longhorn-test delete pod volume-test
+#  sudo kubectl apply -f clusters/homelab/longhorn-smoke-test.yaml
+#  sudo kubectl -n longhorn-test exec volume-test -- cat /data/test.txt   # -> hello
+
+# Prove there is one replica on each storage node:
+#   kubectl -n longhorn-system get replicas.longhorn.io \
+#     -o custom-columns=NAME:.metadata.name,NODE:.spec.nodeID,STATE:.status.currentState
+
+# Cleanup. The StorageClass uses reclaimPolicy: Retain, so deleting the PVC
+# leaves the volume behind on purpose -- remove it explicitly:
+#   PV=$(kubectl -n longhorn-test get pvc longhorn-volv-pvc -o jsonpath='{.spec.volumeName}')
+#   kubectl delete namespace longhorn-test
+#   kubectl delete pv "$PV"
+#   kubectl -n longhorn-system delete volumes.longhorn.io "$PV"
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: longhorn-test
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: longhorn-volv-pvc
+  namespace: longhorn-test
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn # explicit. longhorn is not the default class
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: volume-test
+  namespace: longhorn-test
+spec:
+  containers:
+    - name: volume-test
+      image: nginx:stable-alpine
+      imagePullPolicy: IfNotPresent
+      volumeMounts:
+        - name: volv
+          mountPath: /data
+      ports:
+        - containerPort: 80
+  volumes:
+    - name: volv
+      persistentVolumeClaim:
+        claimName: longhorn-volv-pvc

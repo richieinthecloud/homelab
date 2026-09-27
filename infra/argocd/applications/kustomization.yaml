@@ -13,3 +13,4 @@ namespace: argocd
 
 resources:
   - galaga-app.yaml
+  - longhorn-app.yaml
