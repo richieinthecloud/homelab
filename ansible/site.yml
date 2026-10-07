@@ -1,0 +1,8 @@
+# Entry pint: 'ansible-playbook site.yml' configures every node
+# Each later phase adds a play or a role here.
+
+- name: Longhorn host prerequisites 
+  hosts: all # Longhorn runs on every node so pods can mount volumes anywhere
+  become: true
+  roles: 
+    - longhorn_prereqs
