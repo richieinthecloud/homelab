@@ -6,3 +6,9 @@
   become: true
   roles: 
     - longhorn_prereqs
+
+- name: Laptops stay awake with the lid closed
+  hosts: laptops
+  become: true
+  roles:
+    - laptop
