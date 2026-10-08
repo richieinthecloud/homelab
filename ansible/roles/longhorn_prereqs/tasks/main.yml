@@ -1,5 +1,5 @@
 # Everything Longhorn needs on the host before its first sync.
-# Mirros the checklist in infra/argocd/applications/longhorn-app.yaml
+# Mirrors the checklist in infra/argocd/applications/longhorn-app.yaml
 
 - name: Install Longhorn host dependencies
   ansible.builtin.apt:
@@ -8,16 +8,16 @@
       - nfs-common # needed for RWX volumes and backups to NFS 
     state: present
     update_cache: true
-    cache_valid_time: 86400 # skipt 'apt update' if the cache is less than 24 hrs old
+    cache_valid_time: 86400 # skip 'apt update' if the cache is less than 24 hrs old
 
-- name: Enabled and start iscsid
+- name: Enable and start iscsid
   ansible.builtin.systemd_service:
     name: iscsid
     enabled: true
     state: started
 
 - name: Keep multipathd away from plain sd* disks
-# multipathd grabs block devices it thinks are multipathd, including the 
+# multipathd grabs block devices it thinks are multipath, including the 
 # ones Longhorn creates, and mounts then fail with "already in use".
   ansible.builtin.copy:
     src: multipath.conf

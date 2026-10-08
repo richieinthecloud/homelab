@@ -1,4 +1,4 @@
-# Entry pint: 'ansible-playbook site.yml' configures every node
+# Entry point: 'ansible-playbook site.yml' configures every node
 # Each later phase adds a play or a role here.
 
 - name: Longhorn host prerequisites 

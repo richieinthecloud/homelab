@@ -10,7 +10,7 @@ The guiding principle: **learn by running real workloads on real hardware**, usi
 
 | Node | Hardware | Role |
 |---|---|---|
-| `ubuntu-dell-7430` | Dell Latitude 7430 | Control-plane |
+| `ubuntu-hp-z220` | HP Z220 Workstation | Control-plane |
 | `ubuntu-macbook-pro` | 2013 MacBook Pro | Worker |
 | `ubuntu-optiplex` | Optiplex 5050 | Worker |
 

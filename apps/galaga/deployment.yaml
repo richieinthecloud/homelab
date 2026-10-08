@@ -12,7 +12,7 @@ metadata:
   labels:
     app.kubernetes.io/name: galaga
 spec:
-  # three replicas across a two-node cluster, so losing either node doesn't take
+  # three replicas across a three-node cluster, so losing any one node doesn't take
   # the game offline. no HorizontalPodAutoscaler, for now.
   replicas: 3
   selector:
@@ -23,7 +23,7 @@ spec:
       labels:
         app.kubernetes.io/name: galaga # every pod gets the label here
     spec:
-      # spread the three replicas over the two nodes when possible, but don't block scheduling if only one node is available (ScheduleAnyway).
+      # spread the three replicas over the three nodes when possible, but don't block scheduling if only one node is available (ScheduleAnyway).
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname

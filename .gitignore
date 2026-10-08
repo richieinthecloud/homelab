@@ -1,0 +1,6 @@
+# etcd snapshots contain every cluster Secret; never commit them
+homelab-backups/
+*etcd-snapshot*
+pre-migration-*
+pre-dell-removal-*
+post-migration-*
