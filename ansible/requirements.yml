@@ -1,0 +1,10 @@
+# ansible collections this repo depends on. Install with:
+#  ansible-galaxy collection install -r requirements.yml
+
+# After the first install, pin the version you tested with:
+#  ansible-galaxy collection list kubernetes.core
+# then set `version: "==X.Y.Z"` below. 
+
+collections:
+  - name: kubernetes.core # k8s_drain, k8s_info: used by playbooks/patch-and-reboot.yml
+    version: "==6.6.0"
