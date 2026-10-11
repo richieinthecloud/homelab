@@ -22,6 +22,8 @@ All three nodes run **Ubuntu Server 24.04**, accessed remotely via SSH (key-base
 - **containerd**: the container runtime bundled with k3s (no Docker required on the cluster nodes themselves)
 - **Traefik**: ingress controller, bundled with k3s, handling routing into the cluster
 - **ArgoCD**: GitOps continuous delivery tool, watching this repo and reconciling cluster state against it. Syncs **automatically**, with prune and self-heal enabled
+- **Ansible**: configures the nodes themselves (OS packages, k3s config, the lid-close setting), patches and reboots workers one at a time, backs up etcd and restores the control-plane. ArgoCD owns everything *inside* the cluster; Ansible owns the machines *under* it
+- **Longhorn**: distributed block storage, replicating each volume across the two worker nodes
 - **Kubernetes manifests**: plain YAML to start, with a planned migration to **Helm charts** once the underlying patterns are second nature
 - **GitHub**: source of truth for all infrastructure/deployment config
 

@@ -2,6 +2,6 @@
 # k3s release this cluster runs. Roles check against it; they never upgrade. 
 k3s_version: "v1.36.4+k3s1"
 
-# The real value ie encrypted in vault.yml. Pointing at it from here means
+# The real value is encrypted in vault.yml. Pointing at it from here means
 # you can see where k3s_token comes from without decrypting it.
 k3s_token: "{{ vault_k3s_token }}"

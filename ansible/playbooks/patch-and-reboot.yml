@@ -1,4 +1,4 @@
-# Patch and reboot the worker nodes on at a time, without taking workloads or
+# Patch and reboot the worker nodes one at a time, without taking workloads or
 # Longhorn volumes down with them. 
 
 #   ansible-playbook playbooks/patch-and-reboot.yml --limit ubuntu-optiplex   # one worker
