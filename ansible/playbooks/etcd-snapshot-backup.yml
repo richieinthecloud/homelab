@@ -1,0 +1,44 @@
+# Take an on-demand etcd snapshot on the control-plane and copy it to this workstation
+# Snapshots hold every cluster Secret: they go to ~/.homelab-backups, 
+# never into the repo
+
+#  ansible-playbook playbooks/etcd-snapshot-backup.yml
+
+- name: Back up etcd off the control-plane
+  hosts: k3s_server
+  become: true
+  gather_facts: false
+  vars:
+    snapshot_dir: /var/lib/rancher/k3s/server/db/snapshots
+    snapshot_name: ansible-backup
+    backup_dest: "{{ lookup('ansible.builtin.env', 'HOME') }}/homelab-backups/"
+
+  tasks:
+    - name: Take an on-demand snapshot
+      ansible.builtin.command: k3s etcd-snapshot save --name {{ snapshot_name }}
+      changed_when: true # every run creates a new snapshot
+
+    - name: Prune old on-demand snapshots on the server
+      ansible.builtin.command: k3s etcd-snapshot prune --name {{ snapshot_name }}
+      changed_when: false
+
+    - name: Find this playbook's snapshots
+      ansible.builtin.find: 
+        paths: "{{ snapshot_dir }}"
+        patterns: "{{ snapshot_name }}-*"
+      register: snapshots
+
+    - name: Make sure the local backup folder exists
+      ansible.builtin.file:
+        path: "{{ backup_dest }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+    
+    - name: Copy the newest snapshot to this workstation
+      ansible.builtin.fetch:
+        src: "{{ (snapshots.files | sort(attribute='mtime') | last).path }}"
+        dest: "{{ backup_dest }}"
+        flat: true
+      when: snapshots.matched > 0

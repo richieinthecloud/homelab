@@ -1,0 +1,22 @@
+# Lid handling lives in a drop-in instead of the package-owned
+# /etc/systemd/logind.conf, so a systemd upgrade can't overwrite it.
+
+- name: Create the logind drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/logind.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ignore the lid switch
+  ansible.builtin.copy:
+    src: 10-lid.conf
+    dest: /etc/systemd/logind.conf.d/10-lid.conf
+    owner: root
+    group: root
+    mode: "0644"
+  # No handler to restart systemd-logind, on purpose. The same settings are
+  # already active from logind.conf, and restarting logind on a running machine
+  # can end active sessions. The drop-in takes over at the next boot. On a
+  # freshly built laptop, reboot once after the first run.

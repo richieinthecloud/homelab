@@ -1,0 +1,113 @@
+# Patch and reboot the worker nodes on at a time, without taking workloads or
+# Longhorn volumes down with them. 
+
+#   ansible-playbook playbooks/patch-and-reboot.yml --limit ubuntu-optiplex   # one worker
+#   ansible-playbook playbooks/patch-and-reboot.yml                           # all workers
+
+# Per node: pre-flight -> drain -> apt full-upgrade -> reboot -> wait for Ready
+#           -> uncordon -> wait for Longhorn volumes to be healthy again.
+
+# The control-plane (k3s_server) is deliberately out of scope: it is patched and rebooted by hand
+
+# Needs on this workstation: kubectl access (playbooks/fetch-kubeconfig.yml),
+# python3-kubernetes, and the collections in requirements.yml.
+
+- name: Patch and reboot workers one at a time
+  hosts: k3s_agent
+  serial: 1               # one node at a time: never both Longhorn replicas at once
+  max_fail_percentage: 0  # any failure stops the run before the next node is touched
+  become: true
+  gather_facts: false
+
+  tasks:
+    # ---- Pre-flight -------------------------------------------------------
+    - name: Pre-flight | read Longhorn volumes
+      kubernetes.core.k8s_info:
+        api_version: longhorn.io/v1beta2
+        kind: Volume
+        namespace: longhorn-system
+      register: longhorn_volumes
+      delegate_to: localhost
+      become: false
+
+    - name: Pre-flight | refuse to start unless every attached volume is healthy
+      # Draining a node while a volume is already degraded could take its last
+      # good replica offline. Detached volumes have no live replicas to check.
+      ansible.builtin.assert:
+        that: >-
+          longhorn_volumes.resources
+          | selectattr('status.state', 'equalto', 'attached')
+          | rejectattr('status.robustness', 'equalto', 'healthy')
+          | list | length == 0
+        fail_msg: >-
+          Not touching {{ inventory_hostname }}: these attached Longhorn volumes
+          are not healthy:
+          {{ longhorn_volumes.resources
+             | selectattr('status.state', 'equalto', 'attached')
+             | rejectattr('status.robustness', 'equalto', 'healthy')
+             | map(attribute='metadata.name') | list }}
+
+    # ---- Move workloads off ---------------------------------------------------
+    - name: Drain {{ inventory_hostname }}
+      kubernetes.core.k8s_drain:
+        name: "{{ inventory_hostname }}"
+        state: drain
+        delete_options:
+          ignore_daemonsets: true
+          delete_emptydir_data: true
+          wait_timeout: 600   # seconds to wait for pods to leave
+      delegate_to: localhost
+      become: false
+
+    # ---- Patch and reboot ----------------------------------------------------
+    - name: Apply OS updates (apt full-upgrade)
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist         # like `apt full-upgrade`: allows new kernels and their dependencies
+        autoremove: true      # clears out old kernels and unused packages
+
+    - name: Reboot
+      ansible.builtin.reboot:
+        msg: "Rebooting for OS updates (ansible patch-and-reboot)"
+        reboot_timeout: 900   # seconds; older hardware can be slow to come back
+
+    - name: Wait for {{ inventory_hostname }} to report Ready
+      kubernetes.core.k8s_info:
+        kind: Node
+        name: "{{ inventory_hostname }}"
+      register: node
+      until: >-
+        node.resources | length > 0 and
+        (node.resources[0].status.conditions
+         | selectattr('type', 'equalto', 'Ready')
+         | map(attribute='status') | first) == 'True'
+      retries: 30
+      delay: 10               # 30 x 10s = up to 5 minutes
+      delegate_to: localhost
+      become: false
+
+    # ---- Bring it back -------------------------------------------------------
+    - name: Uncordon {{ inventory_hostname }}
+      # Must happen before the Longhorn wait: by default Longhorn won't rebuild
+      # replicas onto a cordoned node, so the volumes would never recover.
+      kubernetes.core.k8s_drain:
+        name: "{{ inventory_hostname }}"
+        state: uncordon
+      delegate_to: localhost
+      become: false
+
+    - name: Wait for Longhorn to rebuild (all attached volumes healthy)
+      kubernetes.core.k8s_info:
+        api_version: longhorn.io/v1beta2
+        kind: Volume
+        namespace: longhorn-system
+      register: longhorn_after
+      until: >-
+        longhorn_after.resources
+        | selectattr('status.state', 'equalto', 'attached')
+        | rejectattr('status.robustness', 'equalto', 'healthy')
+        | list | length == 0
+      retries: 60
+      delay: 20               # 60 x 20s = up to 20 minutes for replica rebuilds
+      delegate_to: localhost
+      become: false

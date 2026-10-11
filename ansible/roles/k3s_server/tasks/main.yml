@@ -1,0 +1,78 @@
+# Owns the control-plane's k3s configuration. It does not install or upgrade
+# k3s: it checks the installed version against k3s_version and stops on a
+# mismatch. Upgrades are a separate, deliberate procedure.
+
+# Safety checks: nothing is changed until both pass 
+- name: Check which k3s version is installed
+  ansible.builtin.command: k3s --version
+  register: k3s_installed
+  changed_when: false
+  failed_when: false   # handled by the assert below, with a clearer message
+  check_mode: false    # read-only, so it also runs during --check
+
+- name: Refuse to run unless k3s {{ k3s_version }} is installed
+  ansible.builtin.assert:
+    that:
+      - k3s_installed.rc == 0
+      - ('k3s version ' ~ k3s_version ~ ' ') in k3s_installed.stdout
+    fail_msg: >-
+      {{ inventory_hostname }} reports
+      "{{ k3s_installed.stdout_lines | default(['k3s not installed']) | first }}",
+      but the repo pins {{ k3s_version }}. This role does not install or upgrade k3s.
+    quiet: true
+
+- name: Read the token this server is actually using
+  ansible.builtin.slurp:
+    src: /var/lib/rancher/k3s/server/token
+  register: k3s_live_token
+  no_log: true   # contents are the cluster secret
+
+- name: Refuse to run unless the vaulted token matches it
+  # A wrong token would stop the control-plane at the restart below.
+  ansible.builtin.assert:
+    that: (k3s_live_token.content | b64decode | trim) == k3s_token
+    fail_msg: >-
+      vault_k3s_token in inventory/group_vars/all/vault.yml does not match the
+      token on {{ inventory_hostname }}. Fix the vault before running again.
+    quiet: true
+
+# Configuration 
+- name: Token file (root-only)
+  ansible.builtin.copy:
+    content: "{{ k3s_token }}"
+    dest: /etc/rancher/k3s/token
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  diff: false   # never print the token, even with --diff
+  notify: Restart k3s
+
+- name: k3s server config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+    backup: true   # keeps the previous file as config.yaml.<timestamp>~ for rollback
+  notify: Restart k3s
+
+- name: k3s is enabled and running
+  ansible.builtin.systemd_service:
+    name: k3s
+    enabled: true
+    state: started
+
+# Apply and confirm
+- name: Apply a pending restart now, not at the end of the play
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for the API server to report ready
+  ansible.builtin.command: k3s kubectl get --raw /readyz
+  register: k3s_ready
+  until: k3s_ready.rc == 0
+  retries: 30
+  delay: 5       # up to 2.5 minutes
+  changed_when: false
+  check_mode: false

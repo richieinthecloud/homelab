@@ -1,0 +1,10 @@
+# etcd snapshots contain every cluster Secret; never commit them
+homelab-backups/
+etcd-snapshot-*
+ansible-backup-*
+pre-migration-*
+pre-dell-removal-*
+post-migration-*
+
+# ...but the playbooks that create and restore them are code, not snapshots
+!ansible/playbooks/*.yml

@@ -1,0 +1,16 @@
+# Managed by Ansible (homelab/ansible/roles/k3s_agent). Local edits will be overwritten.
+
+# The control-plane this agent registers with.
+server: {{ k3s_server_url }}
+
+# Join secret, kept in its own root-only file so this config holds no secrets
+# and can be diffed and reviewed safely.
+token-file: /etc/rancher/k3s/token
+{% if inventory_hostname in groups['longhorn_storage'] %}
+
+# Longhorn stores replicas only on nodes with this label. k3s applies node
+# labels only when a node first registers: this matters when the node is
+# rebuilt, and has no effect on a node that is already in the cluster.
+node-label:
+  - node.longhorn.io/create-default-disk=true
+{% endif %}

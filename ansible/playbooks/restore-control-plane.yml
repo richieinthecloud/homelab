@@ -1,0 +1,216 @@
+# Restore the control-plane from an etcd snapshot onto a freshly installed
+# ubuntu-hp-z220. Brings back the whole cluster state: ArgoCD and its
+# Applications, Longhorn's volume records, Secrets, and the cluster CA, so the
+# workers reconnect on their own.
+#
+# BEFORE RUNNING, by hand, once the replacement machine is installed:
+#   1. Ubuntu Server 24.04. Hostname ubuntu-hp-z220, same admin user and sudo
+#      password as the other nodes. The DHCP reservation must give it
+#      192.168.1.125 again: the workers are configured to reach that address.
+#   2. SSH from Fedora. The machine's host key is new, so clear the old one:
+#        ssh-keygen -R ubuntu-hp-z220; ssh-keygen -R 192.168.1.125
+#        ssh-copy-id -i ~/.ssh/hp-z220.pub richiealvarezadmin@192.168.1.125
+#        ssh ubuntu-hp-z220 hostname
+#   3. BIOS: "After power loss" -> "Power On".
+#   4. Pick the snapshot: the newest ansible-backup-ubuntu-hp-z220-* file in
+#      ~/homelab-backups/.
+#
+# RUN, from ansible/:
+#   ansible-playbook playbooks/restore-control-plane.yml \
+#     -e snapshot=$HOME/homelab-backups/<snapshot-file> \
+#     -e confirm=restore-ubuntu-hp-z220
+#
+# The snapshot must come from this cluster and k3s_version, and vault_k3s_token
+# must be the token it was taken with: etcd's bootstrap data is encrypted with it.
+#
+# Refuses to run in check mode, without both -e values, or on a node where k3s
+# is running or etcd data already exists, so it can't roll back a healthy
+# control-plane.
+
+- name: Restore the control-plane from an etcd snapshot
+  hosts: k3s_server
+  become: true
+  gather_facts: true
+  vars:
+    restore_dir: /root/k3s-restore
+    k3s_etcd_dir: /var/lib/rancher/k3s/server/db/etcd
+
+  pre_tasks:
+    # Guards: nothing on the node changes until all of these pass 
+    - name: Guard | refuse to run in check mode
+      ansible.builtin.assert:
+        that: not ansible_check_mode
+        fail_msg: This playbook can't be previewed with --check. Read it with --list-tasks instead.
+        quiet: true
+
+    - name: Guard | require the snapshot path and the typed confirmation
+      ansible.builtin.assert:
+        that:
+          - snapshot is defined
+          - confirm is defined
+          - confirm == 'restore-' ~ inventory_hostname
+        fail_msg: >-
+          Run with -e snapshot=<path on this workstation>
+          -e confirm=restore-{{ inventory_hostname }}
+        quiet: true
+
+    - name: Guard | look for the snapshot on this workstation
+      ansible.builtin.stat:
+        path: "{{ snapshot }}"
+      register: snapshot_file
+      delegate_to: localhost
+      become: false
+
+    - name: Guard | the snapshot exists and isn't empty
+      ansible.builtin.assert:
+        that:
+          - snapshot_file.stat.exists
+          - snapshot_file.stat.size > 0
+        fail_msg: "{{ snapshot }} does not exist or is empty."
+        quiet: true
+
+    - name: Guard | is k3s running on {{ inventory_hostname }}?
+      ansible.builtin.command: systemctl is-active k3s
+      register: k3s_active
+      changed_when: false
+      failed_when: false
+
+    - name: Guard | does {{ inventory_hostname }} already hold etcd data?
+      ansible.builtin.stat:
+        path: "{{ k3s_etcd_dir }}"
+      register: etcd_dir
+
+    - name: Guard | refuse to restore over a live or existing control-plane
+      ansible.builtin.assert:
+        that:
+          - k3s_active.stdout != 'active'
+          - not etcd_dir.stat.exists
+        fail_msg: >-
+          {{ inventory_hostname }} has k3s {{ k3s_active.stdout }} and/or existing
+          etcd data at {{ k3s_etcd_dir }}. Restoring would overwrite a cluster
+          that may still be fine. This playbook is for a freshly installed machine.
+        quiet: true
+
+  tasks:
+    # Prepare the machine, exactly as site.yml describes it 
+    - name: Host prerequisites for Longhorn
+      ansible.builtin.include_role:
+        name: longhorn_prereqs
+
+    - name: Load the k3s_server role's defaults (snapshot schedule)
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../roles/k3s_server/defaults/main.yml"
+
+    - name: Directory for k3s config
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Token file (root-only)
+      ansible.builtin.copy:
+        content: "{{ k3s_token }}"
+        dest: /etc/rancher/k3s/token
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      diff: false
+
+    - name: k3s server config (the same template the k3s_server role uses)
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/k3s_server/templates/config.yaml.j2"
+        dest: /etc/rancher/k3s/config.yaml
+        owner: root
+        group: root
+        mode: "0600"
+
+    # Install k3s, but don't start it yet 
+    - name: Download the k3s install script
+      ansible.builtin.get_url:
+        url: https://get.k3s.io
+        dest: /usr/local/bin/k3s-install.sh
+        mode: "0755"
+
+    - name: Install k3s {{ k3s_version }} without starting it
+      ansible.builtin.command: /usr/local/bin/k3s-install.sh server
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        INSTALL_K3S_SKIP_START: "true"
+      args:
+        creates: /usr/local/bin/k3s
+
+    # Restore 
+    - name: Directory for the snapshot being restored
+      ansible.builtin.file:
+        path: "{{ restore_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Copy the snapshot to {{ inventory_hostname }}
+      ansible.builtin.copy:
+        src: "{{ snapshot }}"
+        dest: "{{ restore_dir }}/{{ snapshot | basename }}"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Restore etcd from the snapshot
+      # Runs k3s once in reset mode: it rebuilds a single-member etcd from the
+      # snapshot, logs that it should now be restarted normally, and exits.
+      # That log line is what marks success, whatever the exit code.
+      ansible.builtin.command: >-
+        k3s server --cluster-reset
+        --cluster-reset-restore-path={{ restore_dir }}/{{ snapshot | basename }}
+      register: k3s_restore
+      failed_when: "'restart without --cluster-reset' not in (k3s_restore.stdout ~ k3s_restore.stderr)"
+      timeout: 900
+
+    # Bring it up 
+    - name: Start k3s normally
+      ansible.builtin.systemd_service:
+        name: k3s
+        enabled: true
+        state: started
+
+    - name: Wait for the API server to report ready
+      ansible.builtin.command: k3s kubectl get --raw /readyz
+      register: k3s_ready
+      until: k3s_ready.rc == 0
+      retries: 60
+      delay: 5          # up to 5 minutes
+      changed_when: false
+
+    - name: Forget the old machine's node password
+      # k3s keeps a password per node name, generated on that machine. The
+      # restored cluster still holds the old HP's, so this new install would be
+      # refused until it's removed. k3s recreates it from this machine.
+      ansible.builtin.command: >-
+        k3s kubectl -n kube-system delete secret
+        {{ inventory_hostname }}.node-password.k3s --ignore-not-found
+      register: node_password
+      changed_when: "'deleted' in node_password.stdout"
+
+    - name: Converge with the k3s_server role (the same checks every site.yml run makes)
+      ansible.builtin.include_role:
+        name: k3s_server
+
+    - name: Remove the copied snapshot from {{ inventory_hostname }}
+      ansible.builtin.file:
+        path: "{{ restore_dir }}"
+        state: absent
+
+  post_tasks:
+    - name: What to do next
+      ansible.builtin.debug:
+        msg:
+          - "etcd restored from {{ snapshot | basename }}."
+          - "1. ansible-playbook playbooks/fetch-kubeconfig.yml"
+          - "2. kubectl get nodes   (all three Ready within a few minutes)"
+          - "3. kubectl -n argocd get applications"
+          - "4. kubectl -n longhorn-system get volumes.longhorn.io   (healthy once the workers are back)"
+          - "5. ansible-playbook site.yml --check --diff   (expect changed=0)"

@@ -1,0 +1,28 @@
+# Entry point: 'ansible-playbook site.yml' configures every node
+# Each later phase adds a play or a role here.
+
+- name: Longhorn host prerequisites 
+  hosts: all # Longhorn runs on every node so pods can mount volumes anywhere
+  become: true
+  roles: 
+    - longhorn_prereqs
+
+- name: Laptops stay awake with the lid closed
+  hosts: laptops
+  become: true
+  roles:
+    - laptop
+
+- name: k3s control-plane
+  hosts: k3s_server
+  become: true
+  roles:
+    - k3s_server
+
+- name: k3s workers
+  hosts: k3s_agent
+  serial: 1               # one worker at a time
+  max_fail_percentage: 0  # a failure on the first stops the second
+  become: true
+  roles:
+    - k3s_agent
