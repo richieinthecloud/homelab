@@ -1,0 +1,4 @@
+# The control-plane this agent registers with. Built from the k3s_server
+# host's own facts (gathered at the start of the role), so no IP is stored
+# in the repo.
+k3s_server_url: "https://{{ hostvars[groups['k3s_server'][0]]['ansible_facts']['default_ipv4']['address'] }}:6443"

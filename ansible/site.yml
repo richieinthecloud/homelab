@@ -12,9 +12,17 @@
   become: true
   roles:
     - laptop
-    
+
 - name: k3s control-plane
   hosts: k3s_server
   become: true
   roles:
     - k3s_server
+
+- name: k3s workers
+  hosts: k3s_agent
+  serial: 1               # one worker at a time
+  max_fail_percentage: 0  # a failure on the first stops the second
+  become: true
+  roles:
+    - k3s_agent

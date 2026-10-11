@@ -1,0 +1,139 @@
+# Owns each worker's k3s agent configuration. Like k3s_server, it does not
+# install or upgrade k3s; it checks the version and stops on a mismatch.
+
+# What this agent is running today (all read-only) 
+- name: Learn the control-plane's IP, for the server URL
+  ansible.builtin.setup:
+    filter: ansible_default_ipv4
+  delegate_to: "{{ groups['k3s_server'][0] }}"
+  delegate_facts: true   # store the facts under the server's name, not this agent's
+  run_once: true
+
+- name: Check which k3s version is installed
+  ansible.builtin.command: k3s --version
+  register: k3s_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Read the systemd environment file (where the install script put URL and token)
+  ansible.builtin.slurp:
+    src: /etc/systemd/system/k3s-agent.service.env
+  register: k3s_agent_env
+  failed_when: false
+  no_log: true
+
+- name: Read the token file, if this agent was already migrated
+  ansible.builtin.slurp:
+    src: /etc/rancher/k3s/token
+  register: k3s_token_file
+  failed_when: false
+  no_log: true
+
+- name: Read config.yaml, if this agent was already migrated
+  ansible.builtin.slurp:
+    src: /etc/rancher/k3s/config.yaml
+  register: k3s_agent_config
+  failed_when: false
+
+# Safety checks: nothing is changed until all three pass 
+- name: Refuse to run unless k3s {{ k3s_version }} is installed
+  ansible.builtin.assert:
+    that:
+      - k3s_installed.rc == 0
+      - ('k3s version ' ~ k3s_version ~ ' ') in k3s_installed.stdout
+    fail_msg: >-
+      {{ inventory_hostname }} reports
+      "{{ k3s_installed.stdout_lines | default(['k3s not installed']) | first }}",
+      but the repo pins {{ k3s_version }}. This role does not install or upgrade k3s.
+    quiet: true
+
+- name: Refuse to run unless the vaulted token is the one this agent already uses
+  # A wrong token would leave the agent unable to rejoin after the restart.
+  ansible.builtin.assert:
+    that: >-
+      k3s_token in (k3s_agent_env.content | default('') | b64decode)
+      or (k3s_token_file.content | default('') | b64decode | trim) == k3s_token
+    fail_msg: >-
+      vault_k3s_token does not match the token {{ inventory_hostname }} uses today
+      (checked the .env file and /etc/rancher/k3s/token). Nothing was changed.
+    quiet: true
+
+- name: Refuse to run unless the computed server URL is the one this agent already uses
+  # Guards against picking up the wrong address for the control-plane.
+  ansible.builtin.assert:
+    that: >-
+      k3s_server_url in (k3s_agent_env.content | default('') | b64decode)
+      or k3s_server_url in (k3s_agent_config.content | default('') | b64decode)
+    fail_msg: >-
+      Computed server URL {{ k3s_server_url }} was not found in the agent's
+      current .env or config.yaml on {{ inventory_hostname }}. Nothing was changed.
+    quiet: true
+
+# Configuration 
+- name: Directory for k3s config
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Token file (root-only)
+  ansible.builtin.copy:
+    content: "{{ k3s_token }}"
+    dest: /etc/rancher/k3s/token
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  diff: false
+  notify: Restart k3s-agent
+
+- name: k3s agent config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+    backup: true
+  notify: Restart k3s-agent
+
+- name: Remove K3S_URL and K3S_TOKEN from the systemd environment file
+  # config.yaml is now the single place these are set. Leaving them in the
+  # environment too would mean two sources, and which one wins isn't obvious.
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/system/k3s-agent.service.env
+    regexp: '^K3S_(URL|TOKEN)='
+    state: absent
+    backup: true       # the backup still holds the token: deleted by hand afterwards
+  no_log: true
+  diff: false          # the removed line contains the token
+  notify: Restart k3s-agent
+
+- name: k3s-agent is enabled and running
+  ansible.builtin.systemd_service:
+    name: k3s-agent
+    enabled: true
+    state: started
+
+# Apply and confirm 
+- name: Apply a pending restart now
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for {{ inventory_hostname }} to report Ready
+  kubernetes.core.k8s_info:
+    kind: Node
+    name: "{{ inventory_hostname }}"
+  register: node
+  until: >-
+    node.resources | length > 0 and
+    (node.resources[0].status.conditions
+     | selectattr('type', 'equalto', 'Ready')
+     | map(attribute='status') | first) == 'True'
+  retries: 30
+  delay: 10
+  delegate_to: localhost
+  become: false
+  check_mode: false
