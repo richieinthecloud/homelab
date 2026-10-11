@@ -1,0 +1,6 @@
+# Only runs when the token file or config.yaml actually changed.
+
+- name: Restart k3s
+  ansible.builtin.systemd_service:
+    name: k3s
+    state: restarted

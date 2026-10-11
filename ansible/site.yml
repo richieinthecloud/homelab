@@ -12,3 +12,9 @@
   become: true
   roles:
     - laptop
+    
+- name: k3s control-plane
+  hosts: k3s_server
+  become: true
+  roles:
+    - k3s_server
