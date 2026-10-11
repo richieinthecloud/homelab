@@ -1,5 +1,5 @@
 # Take an on-demand etcd snapshot on the control-plane and copy it to this workstation
-# Snapshots hold every cluster Secret: they go to ~/.homelab-backups, 
+# Snapshots hold every cluster Secret: they go to ~/homelab-backups, 
 # never into the repo
 
 #  ansible-playbook playbooks/etcd-snapshot-backup.yml

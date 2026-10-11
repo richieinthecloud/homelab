@@ -6,10 +6,10 @@
 # BEFORE RUNNING, by hand, once the replacement machine is installed:
 #   1. Ubuntu Server 24.04. Hostname ubuntu-hp-z220, same admin user and sudo
 #      password as the other nodes. The DHCP reservation must give it
-#      192.168.1.125 again: the workers are configured to reach that address.
+#      the same address as before (see ~/.ssh/config): the workers are configured to reach that address.
 #   2. SSH from Fedora. The machine's host key is new, so clear the old one:
-#        ssh-keygen -R ubuntu-hp-z220; ssh-keygen -R 192.168.1.125
-#        ssh-copy-id -i ~/.ssh/hp-z220.pub richiealvarezadmin@192.168.1.125
+#        ssh-keygen -R ubuntu-hp-z220; ssh-keygen -R <ip address>
+#        ssh-copy-id -i ~/.ssh/hp-z220.pub richiealvarezadmin@<ip address>
 #        ssh ubuntu-hp-z220 hostname
 #   3. BIOS: "After power loss" -> "Power On".
 #   4. Pick the snapshot: the newest ansible-backup-ubuntu-hp-z220-* file in
