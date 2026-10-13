@@ -144,34 +144,17 @@ spec:
               - grafana.homelab.local
 
           sidecar:
+            dashboards:
+              # Dashboards live in git as ConfigMaps under apps/monitoring/. These two settings
+              # let each ConfigMap choose its Grafana folder with a 'grafana_folder' annotation.
+              folderAnnotation: grafana_folder
+              provider:
+                foldersFromFilesStructure: true
             datasources:
               # This datasource is created even with Alertmanager disabled, and would show
               # up broken in Grafana. Turn it back on together with alertmanager.enabled.
               alertmanager:
                 enabled: false
-
-          # Node Exporter Full: the hardware dashboard (temps, fans, battery, disks, network).
-          # Pinned to a commit, not a branch, so a Grafana restart can't pull in a different
-          # version. To upgrade, change the commit hash in the url.
-          dashboardProviders:
-            dashboardproviders.yaml:
-              apiVersion: 1
-              providers:
-                - name: homelab
-                  orgId: 1
-                  folder: Homelab
-                  type: file
-                  disableDeletion: true
-                  editable: false
-                  options:
-                    path: /var/lib/grafana/dashboards/homelab
-          dashboards:
-            homelab:
-              node-exporter-full:
-                url: https://raw.githubusercontent.com/rfmoz/grafana-dashboards/99a25cc154c21c4fcbae1aa24352bf1b6764d847/prometheus/node-exporter-full.json
-                # the chart's default curl options include -k (skip TLS verification).
-                # -sLf keeps the download silent and following redirects, but verified.
-                curlOptions: "-sLf"
 
   destination:
     server: https://kubernetes.default.svc

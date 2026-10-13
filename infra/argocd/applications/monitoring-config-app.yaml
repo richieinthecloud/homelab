@@ -1,0 +1,48 @@
+# Kept separate from monitoring-app.yaml on purpose. That one installs the engine
+# (the kube-prometheus-stack chart); this one holds what the engine watches and shows.
+# Same pattern as galaga: manifests in apps/, the Application here.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-config
+  namespace: argocd
+  finalizers:
+    # Deleting this Application also deletes the dashboards and monitors it created.
+    # Safe here: it owns no namespace and no data, only configuration.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/richieinthecloud/homelab
+    targetRevision: main
+    path: apps/monitoring # kustomization.yaml in here is the entrypoint
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      # Normally created by the 'monitoring' Application. Also allowed here, so a fresh
+      # rebuild works whichever Application syncs first. CreateNamespace doesn't make
+      # this Application own the namespace, so it is never pruned.
+      - CreateNamespace=true
+      # Dashboard JSON is large (Node Exporter Full is ~460 KB), far over the 262144-byte
+      # limit for the annotation a client-side apply writes.
+      - ServerSideApply=true
+      # ServiceMonitors, Probes and PrometheusRules are types installed by the
+      # kube-prometheus-stack chart. On a fresh rebuild, this lets the sync wait for
+      # them instead of failing its dry run; retry above covers the gap.
+      - SkipDryRunOnMissingResource=true
