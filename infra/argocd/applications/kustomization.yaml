@@ -15,3 +15,4 @@ resources:
   - galaga-app.yaml
   - longhorn-app.yaml
   - monitoring-app.yaml
+  - monitoring-config-app.yaml

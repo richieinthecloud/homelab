@@ -1,0 +1,34 @@
+# Our own additions to the monitoring stack: dashboards now, and later ServiceMonitors,
+# Probes and alert rules. Synced by the monitoring-config Application.
+
+# Unlike galaga, there is no namespace.yaml here. The monitoring namespace also holds
+# Prometheus and Grafana, which belong to the 'monitoring' Application. If this folder
+# owned the namespace, removing monitoring-config would delete the namespace and
+# everything in it.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: monitoring
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/managed-by: argocd
+
+generatorOptions:
+  # Keep ConfigMap names fixed (no hash suffix), so they're easy to find with kubectl.
+  disableNameSuffixHash: true
+
+# Dashboards. Grafana's sidecar loads every ConfigMap labelled grafana_dashboard=1,
+# and the grafana_folder annotation picks the folder it appears in.
+configMapGenerator:
+  - name: dashboard-node-exporter-full
+    files:
+      - dashboards/node-exporter-full.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
