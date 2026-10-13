@@ -24,6 +24,7 @@ All three nodes run **Ubuntu Server 24.04**, accessed remotely via SSH (key-base
 - **ArgoCD**: GitOps continuous delivery tool, watching this repo and reconciling cluster state against it. Syncs **automatically**, with prune and self-heal enabled
 - **Ansible**: configures the nodes themselves (OS packages, k3s config, the lid-close setting), patches and reboots workers one at a time, backs up etcd and restores the control-plane. ArgoCD owns everything *inside* the cluster; Ansible owns the machines *under* it
 - **Longhorn**: distributed block storage, replicating each volume across the two worker nodes
+- **Prometheus + Grafana** (kube-prometheus-stack): metrics for the hardware, the cluster and its workloads. node-exporter on every node covers CPU, memory, disks, temperatures, fans and the MacBook's battery; Grafana at `grafana.homelab.local` visualizes it
 - **Kubernetes manifests**: plain YAML to start, with a planned migration to **Helm charts** once the underlying patterns are second nature
 - **GitHub**: source of truth for all infrastructure/deployment config
 
