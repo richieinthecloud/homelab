@@ -1,0 +1,196 @@
+# kube-prometheus-stack: Prometheus, Grafana, node-exporter, kube-state-metrics and
+# the Prometheus Operator, installed as one Helm chart. Same shape as longhorn-app.yaml:
+# no manifests under 'apps/', ArgoCD pulls the chart and renders it with the values below.
+
+# What this gives you on day one:
+#  - node-exporter on all three nodes: CPU, memory, disk, network, temperatures, fans,
+#    the MacBook's battery, clock sync
+#  - kube-state-metrics + kubelet: pod restarts, PVC fill, requests vs actual usage
+#  - Grafana at http://grafana.homelab.local with the chart's built-in Kubernetes
+#    dashboards, plus Node Exporter Full in a 'Homelab' folder
+
+# Before the first sync:
+# 1. Create the Grafana admin secret by hand. This repo is public, so the password
+#    never goes in git -- the chart only references the secret by name:
+#      kubectl create namespace monitoring
+#      kubectl -n monitoring create secret generic grafana-admin \
+#        --from-literal=admin-user=admin \
+#        --from-literal=admin-password='<choose one>'
+# 2. Add grafana.homelab.local to the hosts file on the machine you browse from,
+#    pointing at the HP's IP (same as galaga.homelab.local).
+
+# Prometheus has no login of its own, so it gets no Ingress. Reach it with:
+#    kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090
+# Status -> Targets should show every target UP.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  # No finalizer, same as Longhorn. Removing this Application should not cascade into
+  # deleting the CRDs, because deleting a CRD deletes every ServiceMonitor, PrometheusRule
+  # and ScrapeConfig built on it. Uninstalling monitoring should be deliberate and manual.
+spec:
+  project: default
+
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    # Major versions of this chart can carry breaking changes. Read the chart's
+    # "Upgrading" notes before bumping the major number.
+    targetRevision: 92.3.0
+    helm:
+      valuesObject:
+        # k3s-specific: components that don't exist as separate pods 
+        # k3s runs the controller-manager, scheduler and kube-proxy inside the single
+        # 'k3s server' process. Left enabled, the chart scrapes pods that will never exist:
+        # permanently DOWN targets and alerts that fire forever. Disabling a component here
+        # also drops its alert rules.
+        kubeControllerManager:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeProxy:
+          enabled: false
+        # etcd is real here (embedded), but k3s binds its metrics to 127.0.0.1:2381, which is out of
+        # Prometheus's reach. 
+        kubeEtcd:
+          enabled: false
+
+        # Prometheus Operator 
+        prometheusOperator:
+          # The webhooks only validate PrometheusRule syntax. Their cert-patch job rewrites
+          # caBundle in-cluster after every sync, which selfHeal would fight forever.
+          admissionWebhooks:
+            enabled: false
+          # The operator's TLS cert is created by that same webhook job. With the webhooks
+          # off it never appears, and the operator pod waits forever for the missing secret.
+          tls:
+            enabled: false
+
+        # Prometheus 
+        prometheus:
+          prometheusSpec:
+            scrapeInterval: 30s # half the storage and CPU of 15s; plenty at this size
+            evaluationInterval: 30s
+            retention: 7d
+            # Prometheus deletes old data at whichever limit it hits first. Kept below the
+            # PVC size so the volume can never fill completely.
+            retentionSize: 8GB
+
+            # By default Prometheus only picks up monitors carrying this chart's release
+            # label, so anything written by hand later (Longhorn, ArgoCD, Traefik, the etcd
+            # ScrapeConfig) would be silently ignored. Setting each to 'false' prompts Prometheus to
+            # discover all of them.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            probeSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            scrapeConfigSelectorNilUsesHelmValues: false
+
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: longhorn # explicit declaration because longhorn is not the default class
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      # Longhorn keeps 2 replicas, so this uses 20Gi of real disk split
+                      # across the MacBook and the Optiplex.
+                      storage: 10Gi
+
+            # if the HP isdown, Prometheus can still start elsewhere, 
+            # and its Longhorn volume follows it.
+            affinity:
+              nodeAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    preference:
+                      matchExpressions:
+                        - key: node-role.kubernetes.io/control-plane
+                          operator: Exists
+
+            resources:
+              requests:
+                cpu: 100m
+                memory: 1Gi
+              # No memory limit on purpose. Too low a limit gives an OOMKill loop instead of
+              # slow queries. retention, retentionSize and scrapeInterval are the real controls.
+
+        # Alertmanager 
+        # Off until I figure out where alerts will go. Rules still evaluate, so firing
+        # alerts are visible in Prometheus under Alerts.
+        alertmanager:
+          enabled: false
+
+        # Grafana 
+        grafana:
+          admin:
+            existingSecret: grafana-admin # created by hand, see the top of this file
+            userKey: admin-user
+            passwordKey: admin-password
+
+          # Stateless: no PVC. Dashboards come from this file and from ConfigMaps, so a
+          # restarted Grafana comes back identical. Anything built by clicking in the UI is
+          # lost on restart -- export it to git if it's worth keeping.
+          persistence:
+            enabled: false
+
+          ingress:
+            enabled: true
+            ingressClassName: traefik # the IngressClass k3s installs by default
+            hosts:
+              - grafana.homelab.local
+
+          sidecar:
+            datasources:
+              # This datasource is created even with Alertmanager disabled, and would show
+              # up broken in Grafana. Turn it back on together with alertmanager.enabled.
+              alertmanager:
+                enabled: false
+
+          # Node Exporter Full: the hardware dashboard (temps, fans, battery, disks, network).
+          # Pinned to a commit, not a branch, so a Grafana restart can't pull in a different
+          # version. To upgrade, change the commit hash in the url.
+          dashboardProviders:
+            dashboardproviders.yaml:
+              apiVersion: 1
+              providers:
+                - name: homelab
+                  orgId: 1
+                  folder: Homelab
+                  type: file
+                  disableDeletion: true
+                  editable: false
+                  options:
+                    path: /var/lib/grafana/dashboards/homelab
+          dashboards:
+            homelab:
+              node-exporter-full:
+                url: https://raw.githubusercontent.com/rfmoz/grafana-dashboards/99a25cc154c21c4fcbae1aa24352bf1b6764d847/prometheus/node-exporter-full.json
+                # the chart's default curl options include -k (skip TLS verification).
+                # -sLf keeps the download silent and following redirects, but verified.
+                curlOptions: "-sLf"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      # The Prometheus CRD is ~840 KiB, far over the 262144-byte limit for the annotation
+      # a client-side apply writes. Without this the first sync fails with
+      # "metadata.annotations: Too long".
+      - ServerSideApply=true
