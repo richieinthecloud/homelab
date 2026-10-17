@@ -144,11 +144,75 @@ spec:
               type: Socket
               readOnly: true
 
-        # Alertmanager 
-        # Off until I figure out where alerts will go. Rules still evaluate, so firing
-        # alerts are visible in Prometheus under Alerts.
+        # Alertmanager
+        # Receives firing alerts from Prometheus, groups them, and sends them to Slack.
+        # Slack webhook URLs and the healthchecks.io ping URL are secrets, created by hand
+        # (this repo is public). The config below only names the files they're mounted as.
         alertmanager:
-          enabled: false
+          enabled: true
+          alertmanagerSpec:
+            # Mounted at /etc/alertmanager/secrets/alertmanager-receivers/<key>
+            secrets:
+              - alertmanager-receivers
+            # No Longhorn volume on purpose: if Longhorn broke, an Alertmanager that needs
+            # it couldn't start to tell you. The cost: silences reset when the pod restarts.
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+          config:
+            route:
+              # One message per alert type per namespace, not one per pod.
+              group_by: ['alertname', 'namespace']
+              group_wait: 30s
+              group_interval: 5m
+              # Anything not matched below (warnings): quiet channel, reminded once a day.
+              receiver: slack-warnings
+              repeat_interval: 24h
+              routes:
+                # Dead man's switch. Watchdog always fires; forwarding it every minute tells
+                # healthchecks.io the cluster is alive. If the pings stop, healthchecks.io
+                # alerts you from outside the house.
+                - receiver: healthchecks
+                  matchers: ['alertname = "Watchdog"']
+                  group_wait: 0s
+                  group_interval: 1m
+                  repeat_interval: 1m
+                # Never notify.
+                - receiver: 'null'
+                  matchers: ['alertname = "InfoInhibitor"']
+                - receiver: 'null'
+                  matchers: ['severity = "info"']
+                # Critical: the channel whose notifications are on. Repeats every 4h until fixed.
+                - receiver: slack-critical
+                  matchers: ['severity = "critical"']
+                  repeat_interval: 4h
+            receivers:
+              - name: 'null'
+              - name: healthchecks
+                webhook_configs:
+                  - url_file: /etc/alertmanager/secrets/alertmanager-receivers/healthchecks-url
+                    send_resolved: false
+              - name: slack-critical
+                slack_configs:
+                  - api_url_file: /etc/alertmanager/secrets/alertmanager-receivers/slack-critical-url
+                    send_resolved: true
+                    title: '{{ if eq .Status "firing" }}🔴{{ else }}✅{{ end }} {{ .CommonLabels.alertname }}'
+                    text: |-
+                      {{ range .Alerts }}{{ if .Labels.instance }}*{{ .Labels.instance }}*: {{ end }}{{ .Annotations.summary }}
+                      {{ with .Annotations.description }}{{ . }}{{ end }}
+                      {{ end }}
+              - name: slack-warnings
+                slack_configs:
+                  - api_url_file: /etc/alertmanager/secrets/alertmanager-receivers/slack-warnings-url
+                    send_resolved: true
+                    title: '{{ if eq .Status "firing" }}🟠{{ else }}✅{{ end }} {{ .CommonLabels.alertname }}'
+                    text: |-
+                      {{ range .Alerts }}{{ if .Labels.instance }}*{{ .Labels.instance }}*: {{ end }}{{ .Annotations.summary }}
+                      {{ with .Annotations.description }}{{ . }}{{ end }}
+                      {{ end }}
 
         # Grafana 
         grafana:
@@ -176,11 +240,6 @@ spec:
               folderAnnotation: grafana_folder
               provider:
                 foldersFromFilesStructure: true
-            datasources:
-              # This datasource is created even with Alertmanager disabled, and would show
-              # up broken in Grafana. Turn it back on together with alertmanager.enabled.
-              alertmanager:
-                enabled: false
 
   destination:
     server: https://kubernetes.default.svc
