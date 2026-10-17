@@ -26,7 +26,7 @@ spec:
       valuesObject:
         # The chart would otherwise name everything
         # 'blackbox-exporter-prometheus-blackbox-exporter'. Probes point at this name:
-        #   blackbox-exporter.monitoring.svc:9115
+        #  blackbox-exporter.monitoring.svc:9115
         fullnameOverride: blackbox-exporter
 
         config:
