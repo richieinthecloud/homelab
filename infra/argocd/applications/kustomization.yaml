@@ -16,3 +16,4 @@ resources:
   - longhorn-app.yaml
   - monitoring-app.yaml
   - monitoring-config-app.yaml
+  - blackbox-exporter-app.yaml

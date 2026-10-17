@@ -1,0 +1,52 @@
+# End-to-end checks of the homelab's own sites, taking the same path a browser does:
+# Traefik -> Ingress -> Service -> pod. If one of these fails while the pods are
+# healthy, the problem is in between (Traefik, the Ingress, the Service).
+
+# The *.homelab.local names only exist in your PC's hosts file, so the cluster can't
+# resolve them. Instead each probe connects straight to Traefik's in-cluster Service
+# and sends the site's name in the Host header (the 'hostname' parameter), which is
+# exactly what Traefik uses to pick the Ingress.
+
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: galaga
+spec:
+  jobName: homelab-sites
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+    path: /probe
+  module: http_2xx
+  params:
+    - name: hostname
+      values: ["galaga.homelab.local"]
+  targets:
+    staticConfig:
+      static:
+        - http://traefik.kube-system.svc.cluster.local/
+      relabelingConfigs:
+        # Show the site's name in Grafana instead of Traefik's internal address.
+        - targetLabel: instance
+          replacement: galaga.homelab.local
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: grafana
+spec:
+  jobName: homelab-sites
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+    path: /probe
+  module: http_2xx
+  params:
+    - name: hostname
+      values: ["grafana.homelab.local"]
+  targets:
+    staticConfig:
+      static:
+        # Grafana's health endpoint: answers 200 without logging in.
+        - http://traefik.kube-system.svc.cluster.local/api/health
+      relabelingConfigs:
+        - targetLabel: instance
+          replacement: grafana.homelab.local
