@@ -62,12 +62,13 @@ spec:
         longhornUI: 
           # default is 2. One is plenty for a homelab and saves memory on hardware
           replicas: 1
-          metrics:
-            # Creates a ServiceMonitor, so Prometheus scrapes longhorn-manager (port 9500) on
-            # every node: volume health, replica state, storage per node and disk usage.
-            # Adds one object; no Longhorn pods restart.
-            serviceMonitor:
-              enabled: true
+        
+        metrics:
+          # Creates a ServiceMonitor, so Prometheus scrapes longhorn-manager (port 9500) on
+          # every node: volume health, replica state, storage per node and disk usage.
+          # Adds one object; no Longhorn pods restart.
+          serviceMonitor:
+            enabled: true
   
   destination:
     server: https://kubernetes.default.svc
