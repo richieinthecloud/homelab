@@ -1,6 +1,6 @@
-# Our own additions to the monitoring stack: dashboards now, and later ServiceMonitors,
-# Probes and alert rules. Synced by the monitoring-config Application.
-
+# Our own additions to the monitoring stack: dashboards and ServiceMonitors now, and
+# later Probes and alert rules. Synced by the monitoring-config Application.
+#
 # Unlike galaga, there is no namespace.yaml here. The monitoring namespace also holds
 # Prometheus and Grafana, which belong to the 'monitoring' Application. If this folder
 # owned the namespace, removing monitoring-config would delete the namespace and
@@ -10,6 +10,9 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 namespace: monitoring
+
+resources:
+  - servicemonitors/argocd.yaml
 
 labels:
   - includeSelectors: false
@@ -24,9 +27,33 @@ generatorOptions:
 # Dashboards. Grafana's sidecar loads every ConfigMap labelled grafana_dashboard=1,
 # and the grafana_folder annotation picks the folder it appears in.
 configMapGenerator:
+  # Node Exporter Full, from github.com/rfmoz/grafana-dashboards (Apache-2.0),
+  # commit 99a25cc154c21c4fcbae1aa24352bf1b6764d847. To upgrade, replace the JSON file.
   - name: dashboard-node-exporter-full
     files:
       - dashboards/node-exporter-full.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
+
+  # Longhorn: written for this repo against Longhorn 1.12 metrics (volume robustness
+  # is reported per state, so older community dashboards misread it).
+  - name: dashboard-longhorn
+    files:
+      - dashboards/longhorn.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
+
+  # Argo CD's own example dashboard, from github.com/argoproj/argo-cd (Apache-2.0),
+  # tag v3.5.5, examples/dashboard.json. To upgrade, replace the JSON file.
+  - name: dashboard-argocd
+    files:
+      - dashboards/argocd.json
     options:
       labels:
         grafana_dashboard: "1"
