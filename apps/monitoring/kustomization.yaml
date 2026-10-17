@@ -15,6 +15,7 @@ resources:
   - servicemonitors/argocd.yaml
   - probes/homelab.yaml
   - probes/internet.yaml
+  - podmonitors/traefik.yaml
 
 labels:
   - includeSelectors: false
@@ -66,6 +67,17 @@ configMapGenerator:
   - name: dashboard-probes
     files:
       - dashboards/probes.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
+  
+  # Traefik's official Kubernetes dashboard, from github.com/traefik/traefik (MIT),
+  # tag v3.7.8, contrib/grafana/traefik-kubernetes.json. To upgrade, replace the file.
+  - name: dashboard-traefik
+    files:
+      - dashboards/traefik.json
     options:
       labels:
         grafana_dashboard: "1"
