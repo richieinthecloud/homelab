@@ -1,0 +1,20 @@
+# Can the cluster reach the outside services it depends on? ArgoCD pulls this repo from
+# github.com, and galaga's image comes from ghcr.io. When a sync or an image pull fails,
+# these show whether it was your internet connection rather than your config.
+
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: internet
+spec:
+  jobName: internet
+  interval: 60s # once a minute is plenty for someone else's website
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+    path: /probe
+  module: http_2xx
+  targets:
+    staticConfig:
+      static:
+        - https://github.com
+        - https://ghcr.io

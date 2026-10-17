@@ -13,6 +13,8 @@ namespace: monitoring
 
 resources:
   - servicemonitors/argocd.yaml
+  - probes/homelab.yaml
+  - probes/internet.yaml
 
 labels:
   - includeSelectors: false
@@ -54,6 +56,16 @@ configMapGenerator:
   - name: dashboard-argocd
     files:
       - dashboards/argocd.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
+
+  # Probes: written for this repo against blackbox_exporter v0.29.0 metrics.
+  - name: dashboard-probes
+    files:
+      - dashboards/probes.json
     options:
       labels:
         grafana_dashboard: "1"
