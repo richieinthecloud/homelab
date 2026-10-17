@@ -1,0 +1,78 @@
+# SMART disk health for every disk on every node: pass/fail, temperature, power-on hours,
+# wear and media errors. Warns about a dying disk weeks before it fails.
+
+# Longhorn already checks the disks that hold Longhorn data (the MacBook and Optiplex),
+# but not the HP: it stores no Longhorn data, yet it holds etcd -- the only copy of the
+# cluster's state. This covers all three.
+
+# Trade-off: reading SMART data needs raw access to the disks, so this pod runs
+# privileged, as root, with the host's /dev mounted. It talks to nothing but the disks
+# and Prometheus, and has no Kubernetes API permissions (rbac.create: false below).
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: smartctl-exporter
+  namespace: argocd
+  finalizers:
+    # Deleting this Application removes the exporter too. Safe: it holds no data.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus-smartctl-exporter
+    targetRevision: 0.17.1 # smartctl_exporter v0.14.0
+    helm:
+      valuesObject:
+        fullnameOverride: smartctl-exporter
+
+        # The chart's RBAC only binds a PodSecurityPolicy role, and PodSecurityPolicy was
+        # removed in Kubernetes 1.25. The exporter never calls the Kubernetes API.
+        rbac:
+          create: false
+
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+
+        serviceMonitor:
+          enabled: true
+          # Name each target after its node (e.g. ubuntu-hp-z220) instead of the exporter
+          # pod's IP, so dashboards and alerts say which machine the disk is in.
+          relabelings:
+            - sourceLabels: [__meta_kubernetes_pod_node_name]
+              targetLabel: instance
+
+        # The chart's own disk alerts. Nothing notifies yet (no Alertmanager), but they
+        # show on Prometheus's Alerts page, ready for the alerting phase.
+        prometheusRules:
+          enabled: true
+          rules:
+            # Fires when a disk's link runs below its maximum speed. On laptops with
+            # SATA power saving, and on the older interfaces in this hardware, that is
+            # normal and nothing you could act on.
+            smartCTLDInterfaceSlow:
+              enabled: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true

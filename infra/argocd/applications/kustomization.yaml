@@ -17,3 +17,4 @@ resources:
   - monitoring-app.yaml
   - monitoring-config-app.yaml
   - blackbox-exporter-app.yaml
+  - smartctl-exporter-app.yaml
