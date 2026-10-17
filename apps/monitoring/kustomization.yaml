@@ -16,6 +16,7 @@ resources:
   - probes/homelab.yaml
   - probes/internet.yaml
   - podmonitors/traefik.yaml
+  - rules/homelab.yaml
 
 labels:
   - includeSelectors: false
