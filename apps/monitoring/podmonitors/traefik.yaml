@@ -1,0 +1,27 @@
+# Traefik's request metrics: requests per second, HTTP status codes and latency, for
+# the whole entrypoint and per backend service (galaga, grafana, ...).
+
+# Nothing changes on the Traefik side. The Traefik chart k3s ships already turns on
+# Prometheus metrics, on a container port named 'metrics' (9100). It just doesn't put
+# a Service in front of it, so this is a PodMonitor (scrape the pods directly) rather
+# than a ServiceMonitor. No HelmChartConfig, no Traefik restart.
+
+# Traefik's defaults give entrypoint and per-service metrics, which is what the
+# dashboard uses. Per-router metrics are off; turning them on would need a
+# HelmChartConfig and would restart Traefik, so it's left alone.
+
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: traefik
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+      app.kubernetes.io/instance: traefik-kube-system # k3s installs it as release 'traefik'
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
