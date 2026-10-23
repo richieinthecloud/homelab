@@ -33,7 +33,9 @@ spec:
           regex: argocd-metrics
           targetLabel: job
           replacement: argocd-application-controller-metrics
+          action: replace
         - sourceLabels: [__meta_kubernetes_service_name]
           regex: (argocd-repo-server|argocd-applicationset-controller)
           targetLabel: job
           replacement: ${1}-metrics
+          action: replace
