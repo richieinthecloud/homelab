@@ -53,10 +53,16 @@ spec:
           enabled: false
         kubeProxy:
           enabled: false
-        # etcd is real here (embedded), but k3s binds its metrics to 127.0.0.1:2381, which is out of
-        # Prometheus's reach. 
+        # etcd runs embedded in k3s on the HP and is scraped by
+        # apps/monitoring/scrapeconfigs/k3s-etcd.yaml (needs etcd-expose-metrics in the k3s
+        # config). 'enabled: true' keeps the chart's etcd alerts and dashboard; its own
+        # Service and ServiceMonitor stay off because there is no etcd pod for them to find.
         kubeEtcd:
-          enabled: false
+          enabled: true
+          service:
+            enabled: false
+          serviceMonitor:
+            enabled: false
 
         # Prometheus Operator 
         prometheusOperator:

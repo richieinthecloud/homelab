@@ -17,6 +17,7 @@ resources:
   - probes/internet.yaml
   - podmonitors/traefik.yaml
   - rules/homelab.yaml
+  - scrapeconfigs/k3s-etcd.yaml
 
 labels:
   - includeSelectors: false

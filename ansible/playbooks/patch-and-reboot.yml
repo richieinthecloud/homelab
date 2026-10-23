@@ -20,7 +20,7 @@
   gather_facts: false
 
   tasks:
-    # ---- Pre-flight -------------------------------------------------------
+    # Pre-flight 
     - name: Pre-flight | read Longhorn volumes
       kubernetes.core.k8s_info:
         api_version: longhorn.io/v1beta2
@@ -47,7 +47,7 @@
              | rejectattr('status.robustness', 'equalto', 'healthy')
              | map(attribute='metadata.name') | list }}
 
-    # ---- Move workloads off ---------------------------------------------------
+    # Move workloads off 
     - name: Drain {{ inventory_hostname }}
       kubernetes.core.k8s_drain:
         name: "{{ inventory_hostname }}"
@@ -59,7 +59,7 @@
       delegate_to: localhost
       become: false
 
-    # ---- Patch and reboot ----------------------------------------------------
+    # Patch and reboot 
     - name: Apply OS updates (apt full-upgrade)
       ansible.builtin.apt:
         update_cache: true
@@ -86,7 +86,7 @@
       delegate_to: localhost
       become: false
 
-    # ---- Bring it back -------------------------------------------------------
+    # Bring it back 
     - name: Uncordon {{ inventory_hostname }}
       # Must happen before the Longhorn wait: by default Longhorn won't rebuild
       # replicas onto a cordoned node, so the volumes would never recover.
