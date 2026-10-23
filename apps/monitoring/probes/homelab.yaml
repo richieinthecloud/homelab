@@ -25,9 +25,9 @@ spec:
       static:
         - http://traefik.kube-system.svc.cluster.local/
       relabelingConfigs:
-        # Show the site's name in Grafana instead of Traefik's internal address.
         - targetLabel: instance
-          replacement: galaga.homelab.local
+          replacement: galaga.homelab.local    # grafana.homelab.local in the second Probe
+          action: replace # CRD default; written out so ArgoCD's diff matches the live object
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: Probe
@@ -49,4 +49,5 @@ spec:
         - http://traefik.kube-system.svc.cluster.local/api/health
       relabelingConfigs:
         - targetLabel: instance
-          replacement: grafana.homelab.local
+          replacement: galaga.homelab.local    # grafana.homelab.local in the second Probe
+          action: replace # CRD default; written out so ArgoCD's diff matches the live object

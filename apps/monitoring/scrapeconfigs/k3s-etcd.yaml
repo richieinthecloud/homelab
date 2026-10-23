@@ -28,5 +28,7 @@ spec:
       regex: '([^:]+)(?::\d+)?'
       replacement: '${1}:2381'
       targetLabel: __address__
+      action: replace
     - sourceLabels: [__meta_kubernetes_node_name]
       targetLabel: instance
+      action: replace

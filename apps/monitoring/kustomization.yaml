@@ -1,10 +1,13 @@
 # Our own additions to the monitoring stack: dashboards and ServiceMonitors now, and
 # later Probes and alert rules. Synced by the monitoring-config Application.
-#
+
 # Unlike galaga, there is no namespace.yaml here. The monitoring namespace also holds
 # Prometheus and Grafana, which belong to the 'monitoring' Application. If this folder
 # owned the namespace, removing monitoring-config would delete the namespace and
 # everything in it.
+
+# Always write 'action:' on relabel rules, even 'replace': the CRD fills it in when
+# it's missing, and ArgoCD then reports the object OutOfSync forever.
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
