@@ -1,0 +1,6 @@
+# Run once straight away, so the metrics exist now instead of after the first timer tick.
+- name: Run host metrics now
+  ansible.builtin.systemd_service:
+    name: homelab-host-metrics.service
+    state: started
+    daemon_reload: true

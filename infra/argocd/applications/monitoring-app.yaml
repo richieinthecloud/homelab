@@ -133,14 +133,18 @@ spec:
             - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/containerd/.+|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
             - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|erofs)$
             # systemd: whether the services the cluster depends on are running.
-            #   k3s / k3s-agent    the cluster itself (server on the HP, agent on the workers)
-            #   iscsid, multipathd Longhorn can't attach volumes without them
-            #   systemd-timesyncd  clock sync (or chrony, if installed); etcd and Longhorn need it
-            #   ssh                how you (and Ansible) reach the nodes
+            # k3s / k3s-agent    the cluster itself (server on the HP, agent on the workers)
+            # iscsid, multipathd Longhorn can't attach volumes without them
+            # systemd-timesyncd  clock sync (or chrony, if installed); etcd and Longhorn need it
+            # ssh                how you (and Ansible) reach the nodes
             - --collector.systemd
             - --collector.systemd.unit-include=(k3s|k3s-agent|iscsid|multipathd|systemd-timesyncd|chrony)\.service|ssh\.(service|socket)
             # Restart counts, needed by the chart's NodeSystemdServiceCrashlooping alert.
             - --collector.systemd.enable-restarts-metrics
+            # Host checks written by Ansible's host_metrics role (updates, reboot required,
+            # etcd snapshot age, k3s cert expiry). Read through the host's root filesystem, 
+            # which the chart already mounts at /host/root, so no extra mount is needed.
+            - --collector.textfile.directory=/host/root/var/lib/node_exporter/textfile
           extraHostVolumeMounts:
             # The systemd collector asks systemd over D-Bus. Read-only access to the host's
             # system bus socket is all it needs; node-exporter stays unprivileged.
