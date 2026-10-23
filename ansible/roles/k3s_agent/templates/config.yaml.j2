@@ -14,3 +14,7 @@ token-file: /etc/rancher/k3s/token
 node-label:
   - node.longhorn.io/create-default-disk=true
 {% endif %}
+
+
+# Pin the node's IP (see k3s_server's template for why).
+node-ip: {{ ansible_facts['default_ipv4']['address'] }}
