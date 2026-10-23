@@ -1,0 +1,9 @@
+# Managed by Ansible (homelab/ansible/roles/host_metrics).
+[Unit]
+Description=Write host metrics for node-exporter (homelab)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/homelab-host-metrics
+Nice=10

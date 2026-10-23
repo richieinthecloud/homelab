@@ -112,3 +112,54 @@ spec:
           annotations:
             summary: "ArgoCD app is {{ $labels.health_status }}."
             description: "Something the app deployed isn't running properly. Open the app in ArgoCD to see which resource."
+    
+    - name: homelab-host
+      rules:
+        - alert: NodeRebootRequired
+          expr: label_replace((homelab_reboot_required == 1) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 48h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Has needed a reboot for 2 days (usually a new kernel)."
+            description: "Run ansible/playbooks/patch-and-reboot.yml for workers; the HP is rebooted by hand."
+        - alert: NodeSecurityUpdatesPending
+          expr: label_replace((homelab_apt_security_upgrades_pending > 0) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 3d
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value }} security updates waiting for 3 days."
+            description: "unattended-upgrades normally installs these daily, so it may be stuck. Check 'systemctl status unattended-upgrades' or run patch-and-reboot.yml."
+        - alert: EtcdSnapshotStale
+          expr: label_replace((time() - homelab_etcd_snapshot_newest_timestamp_seconds > 26 * 3600) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No new etcd snapshot for over 26 hours."
+            description: "k3s takes one every 12 hours, so at least two in a row were missed. Check 'k3s etcd-snapshot ls' on the HP and the k3s logs."
+        - alert: K3sCertificateExpiringSoon
+          expr: label_replace(((homelab_k3s_cert_expiry_timestamp_seconds - time()) < 60 * 86400) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "k3s certificate {{ $labels.cert }} expires in under 60 days."
+            description: "k3s renews certificates when it starts and they're close to expiry. Restart k3s (or k3s-agent) on this node."
+        - alert: K3sCertificateExpiryImminent
+          expr: label_replace(((homelab_k3s_cert_expiry_timestamp_seconds - time()) < 7 * 86400) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "k3s certificate {{ $labels.cert }} expires in under 7 days."
+            description: "When it expires this node drops out of the cluster. Restart k3s (or k3s-agent) on this node now."
+        - alert: HostMetricsStale
+          expr: label_replace((time() - node_textfile_mtime_seconds{file=~".*homelab_host\\.prom"} > 3600) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Host checks (updates, snapshots, certificates) haven't updated for over an hour."
+            description: "The homelab-host-metrics timer has stopped. Check 'systemctl status homelab-host-metrics.timer' on this node."

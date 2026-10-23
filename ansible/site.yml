@@ -26,3 +26,9 @@
   become: true
   roles:
     - k3s_agent
+
+- name: Host metrics for node-exporter
+  hosts: all
+  become: true
+  roles:
+    - host_metrics
