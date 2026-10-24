@@ -153,6 +153,14 @@ spec:
               mountPath: /var/run/dbus/system_bus_socket
               type: Socket
               readOnly: true
+          # Containerd's default AppArmor profile blocks D-Bus, so the systemd collector
+          # above couldn't talk to systemd (the kernel logged an AppArmor DENIED every
+          # scrape). Unconfined lifts that for this container only. node-exporter already
+          # sees the host's /proc, /sys and root filesystem, so this adds little.
+          containerSecurityContext:
+            readOnlyRootFilesystem: true # the chart's default; repeated so it's obvious
+            appArmorProfile:
+              type: Unconfined
 
         # Alertmanager
         # Receives firing alerts from Prometheus, groups them, and sends them to Slack.

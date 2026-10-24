@@ -1,0 +1,8 @@
+# Managed by Ansible (homelab/ansible/roles/laptop). Local edits will be overwritten.
+# Haswell-ULT graphics (MacBookPro11,1). With the screen off, runtime power management
+# keeps trying to put the GPU in its deepest power state (PC8), finds the backlight PWM
+# still on, and logs a kernel WARNING with a full stack trace about every 30 seconds.
+# Keep this GPU out of runtime suspend instead. Matches this GPU model only, so the
+# rule does nothing on other machines. 'bind' runs after the i915 driver has loaded,
+# so nothing done during driver setup undoes it.
+ACTION=="add|bind", SUBSYSTEM=="pci", ATTR{vendor}=="0x8086", ATTR{device}=="0x0a2e", ATTR{power/control}="on"

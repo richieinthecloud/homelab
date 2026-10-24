@@ -73,7 +73,7 @@ spec:
             reporting_enabled: false
 
           # The ruler runs LogQL alert rules (apps/monitoring/rules/loki-homelab.yaml)
-          # and sends that fires to the same Alertmanager as Prometheus.
+          # and sends what fires to the same Alertmanager as Prometheus.
           rulerConfig:
             storage:
               type: local
@@ -111,7 +111,7 @@ spec:
 
           # The rules, from the 'loki-rules' ConfigMap (apps/monitoring). The chart's own
           # ruler.directories option only creates that ConfigMap in distributed mode, so
-          # it's mounted here directly. It is option, Loki still stars without it. 
+          # it's mounted here directly. It is optional, Loki still stars without it.
           extraVolumes:
             - name: rules
               configMap:
