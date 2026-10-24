@@ -19,3 +19,4 @@ resources:
   - blackbox-exporter-app.yaml
   - smartctl-exporter-app.yaml
   - loki-app.yaml
+  - alloy-app.yaml

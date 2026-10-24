@@ -49,5 +49,5 @@ spec:
         - http://traefik.kube-system.svc.cluster.local/api/health
       relabelingConfigs:
         - targetLabel: instance
-          replacement: galaga.homelab.local    # grafana.homelab.local in the second Probe
+          replacement: grafana.homelab.local 
           action: replace # CRD default; written out so ArgoCD's diff matches the live object
