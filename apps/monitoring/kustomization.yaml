@@ -98,3 +98,20 @@ configMapGenerator:
         grafana_dashboard: "1"
       annotations:
         grafana_folder: Homelab
+
+  # Logs: written for this repo against Loki 3.7 and the labels Alloy sets
+  # (alloy-app.yaml): job, instance, namespace, pod, unit, level, type.
+  - name: dashboard-logs
+    files:
+      - dashboards/logs.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
+
+  # Log alert rules for Loki's ruler, mounted into Loki by loki-app.yaml. The key
+  # (homelab.yaml) is the file name Loki sees.
+  - name: loki-rules
+    files:
+      - homelab.yaml=rules/loki-homelab.yaml
