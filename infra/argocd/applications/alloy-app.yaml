@@ -6,7 +6,8 @@
 #  - journald:  k3s / k3s-agent (the cluster itself), iscsid (Longhorn volume
 #               attach), ssh (logins)
 #  - kernel:    OOM kills, disk and USB errors, thermal throttling
-# Every stream carries instance=<node name>, the same label Prometheus uses.
+#  - events:    Kubernetes events, collected by one pod only (clustering, below)
+# Node streams carry instance=<node name>, the same label Prometheus uses.
 
 # Alloy's UI shows the pipeline and what each step is doing:
 #    kubectl -n monitoring port-forward ds/alloy 12345
@@ -159,12 +160,54 @@ spec:
                 }
               }
 
+              // ---- Kubernetes events ---------------------------------------------------------
+              // Pulled, scheduled, BackOff, FailedMount, Evicted... Kubernetes only keeps events
+              // for an hour; this keeps them for Loki's 7 days. Events come from the API, not
+              // from a node, so only one Alloy pod may collect them or each would be stored three
+              // times. With clustering on, the pods agree on one owner and hand it over if that
+              // node goes down.
+              loki.source.kubernetes_events "events" {
+                job_name   = "events"
+                forward_to = [loki.process.events.receiver]
+
+                clustering {
+                  enabled = true
+                }
+              }
+
+              // Each event is one logfmt line: name, kind, reason, type, count, msg and more.
+              // 'type' (Normal or Warning) becomes a label so warnings are one click away.
+              // 'instance' would be the component's name, not a node, so it's dropped.
+              loki.process "events" {
+                forward_to = [loki.write.default.receiver]
+
+                stage.logfmt {
+                  mapping = { type = "" }
+                }
+
+                stage.labels {
+                  values = { type = "" }
+                }
+
+                stage.label_drop {
+                  values = ["instance"]
+                }
+              }
+
+
               // ---- Output --------------------------------------------------------------------
               loki.write "default" {
                 endpoint {
                   url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
                 }
               }
+
+          # The three pods form a cluster so that work which must happen once (the
+          # Kubernetes events) runs on exactly one of them. Pod logs and the journal
+          # don't use it: each pod still reads its own node.
+          clustering:
+            enabled: true
+
 
           # Where Alloy remembers how far it has read each log file and the journal.
           # A hostPath (below), so a restarted pod carries on instead of re-sending.
@@ -197,12 +240,13 @@ spec:
                   type: DirectoryOrCreate
 
         # The chart's default ClusterRole can read every Secret and ConfigMap in the
-        # cluster, for Alloy components this config doesn't use. discovery.kubernetes
-        # with role "pod" only needs to see pods.
+        # cluster, for Alloy components this config doesn't use.
+        # Only what's needed: 
+        # pods for discovery.kubernetes, events for loki.source.kubernetes_events.
         rbac:
           rules:
             - apiGroups: [""]
-              resources: ["pods"]
+              resources: ["pods", "events"]
               verbs: ["get", "list", "watch"]
 
         # Alloy's own metrics (lines read, bytes sent, push errors to Loki).
