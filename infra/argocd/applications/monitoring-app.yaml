@@ -251,6 +251,17 @@ spec:
               provider:
                 foldersFromFilesStructure: true
 
+          # Loki (loki-app.yaml) for logs, next to the chart's Prometheus and
+          # Alertmanager datasources. Prometheus stays the default.
+          additionalDataSources:
+            - name: Loki
+              uid: loki # fixed, so dashboards in git can refer to it
+              type: loki
+              access: proxy
+              url: http://loki.monitoring.svc:3100
+              jsonData:
+                maxLines: 1000
+
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
