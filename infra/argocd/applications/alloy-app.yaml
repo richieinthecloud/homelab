@@ -181,6 +181,14 @@ spec:
               loki.process "events" {
                 forward_to = [loki.write.default.receiver]
 
+                // On its first start (or when another node takes over) the collector
+                // sends every event the API still holds, some weeks old. Loki refuses
+                // anything older than 7 days with an error; drop those quietly here.
+                stage.drop {
+                  older_than = "167h"
+                  drop_counter_reason = "older_than_loki_retention"
+                }
+
                 stage.logfmt {
                   mapping = { type = "" }
                 }

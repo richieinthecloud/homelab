@@ -72,6 +72,18 @@ spec:
           analytics:
             reporting_enabled: false
 
+          # The ruler runs LogQL alert rules (apps/monitoring/rules/loki-homelab.yaml)
+          # and sends that fires to the same Alertmanager as Prometheus.
+          rulerConfig:
+            storage:
+              type: local
+              local:
+                # One folder per tenant; with auth off the only tenant is 'fake'.
+                directory: /etc/loki/rules
+            alertmanager_url: http://monitoring-kube-prometheus-alertmanager.monitoring.svc:9093
+            # Lets Grafana list these rules (Alerting -> Alert rules).
+            enable_api: true
+
         singleBinary:
           replicas: 1
           persistence:
@@ -96,6 +108,19 @@ spec:
               memory: 256Mi
             limits:
               memory: 1Gi
+
+          # The rules, from the 'loki-rules' ConfigMap (apps/monitoring). The chart's own
+          # ruler.directories option only creates that ConfigMap in distributed mode, so
+          # it's mounted here directly. It is option, Loki still stars without it. 
+          extraVolumes:
+            - name: rules
+              configMap:
+                name: loki-rules
+                optional: true
+          extraVolumeMounts:
+            - name: rules
+              mountPath: /etc/loki/rules/fake
+              readOnly: true
 
         # Components of the other deployment modes: none.
         read:

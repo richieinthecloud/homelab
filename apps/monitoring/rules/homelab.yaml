@@ -163,3 +163,39 @@ spec:
           annotations:
             summary: "Host checks (updates, snapshots, certificates) haven't updated for over an hour."
             description: "The homelab-host-metrics timer has stopped. Check 'systemctl status homelab-host-metrics.timer' on this node."
+
+    # The log pipeline itself (Alloy -> Loki -> Loki's ruler -> Alertmanager). The
+    # log-based alerts live in rules/loki-homelab.yaml; these make sure they can work.
+    - name: homelab-logs
+      rules:
+        - alert: AlloyDroppingLogs
+          expr: label_replace((sum by (pod, reason) (increase(loki_write_dropped_entries_total[15m])) > 0) * on(pod) group_left(node) max by (pod, node) (kube_pod_info{namespace="monitoring"}), "instance", "$1", "node", "(.*)")
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alloy dropped {{ $value | humanize }} log lines in the last 15 minutes ({{ $labels.reason }})."
+            description: "Loki refused them or couldn't be reached. Check: kubectl -n monitoring logs {{ $labels.pod }} -c alloy | grep level=error"
+        - alert: LokiRulesNotLoaded
+          expr: absent(loki_prometheus_rule_group_rules)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki isn't running any log alert rules."
+            description: "Either Loki is down or the loki-rules ConfigMap has a mistake. Check: kubectl -n monitoring logs loki-0 | grep 'unable to list rules'"
+        - alert: LokiRuleEvaluationFailing
+          expr: sum(increase(loki_prometheus_rule_evaluation_failures_total[10m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki's log alert rules are failing to run."
+            description: "A query in rules/loki-homelab.yaml errors out. Check: kubectl -n monitoring logs loki-0 | grep -i 'rule evaluation'"
+        - alert: LokiAlertsNotDelivered
+          expr: sum(increase(loki_prometheus_notifications_errors_total[10m])) + sum(increase(loki_prometheus_notifications_dropped_total[10m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki can't deliver log alerts to Alertmanager."
+            description: "Log-based alerts (OOM kills, disk errors, volume mounts) won't reach Slack. Check alertmanager_url in loki-app.yaml and: kubectl -n monitoring logs loki-0 | grep -i notifier"
