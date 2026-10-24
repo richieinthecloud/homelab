@@ -18,3 +18,4 @@ resources:
   - monitoring-config-app.yaml
   - blackbox-exporter-app.yaml
   - smartctl-exporter-app.yaml
+  - loki-app.yaml
