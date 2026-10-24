@@ -20,3 +20,14 @@
   # already active from logind.conf, and restarting logind on a running machine
   # can end active sessions. The drop-in takes over at the next boot. On a
   # freshly built laptop, reboot once after the first run.
+
+# MacBookPro11,1 only (the rule matches its GPU model): stop the i915 runtime-PM
+# warnings that otherwise flood the kernel log, and Loki, every ~30 seconds.
+- name: Keep the Haswell GPU out of runtime suspend
+  ansible.builtin.copy:
+    src: 80-i915-runtime-pm.rules
+    dest: /etc/udev/rules.d/80-i915-runtime-pm.rules
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply GPU power rule
