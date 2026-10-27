@@ -1,0 +1,6 @@
+# Empty on purpose. Services in this cluster are discovered from their Ingress
+# annotations, so adding one never touches this file.
+#
+# Write entries here only for things with no Ingress to discover: the router,
+# a NAS, anything outside the cluster. Discovered services always render above
+# the ones written here.

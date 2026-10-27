@@ -1,0 +1,3 @@
+# No Docker hosts: k3s runs containerd, and discovery comes from Kubernetes
+# (kubernetes.yaml). Homepage still looks for this file, and exits if it's
+# missing and can't create one, so it stays, empty.

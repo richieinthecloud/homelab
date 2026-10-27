@@ -1,0 +1,22 @@
+# Info widgets: the row along the top of the page.
+
+- search:
+    provider: duckduckgo
+    target: _blank
+
+# Phase 3: uncomment. Needs nothing new, it reads node and metrics-server data
+# through the ClusterRole in rbac.yaml. If the bars show but read zero, check
+# metrics-server first:  kubectl top nodes
+#
+# - kubernetes:
+#     cluster:
+#       show: true
+#       cpu: true
+#       memory: true
+#       showLabel: true
+#       label: cluster
+#     nodes:
+#       show: true
+#       cpu: true
+#       memory: true
+#       showLabel: true

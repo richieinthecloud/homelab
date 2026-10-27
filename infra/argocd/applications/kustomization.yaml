@@ -20,3 +20,4 @@ resources:
   - smartctl-exporter-app.yaml
   - loki-app.yaml
   - alloy-app.yaml
+  - homepage-app.yaml

@@ -1,0 +1,14 @@
+# How homepage reaches the cluster:
+#   cluster  - the ServiceAccount token mounted into the pod (this one)
+#   default  - a kubeconfig file, for running homepage outside the cluster
+#   disabled - no cluster access at all
+mode: cluster
+
+# Discover services from Ingresses annotated gethomepage.dev/enabled: "true".
+# Phase 1 only homepage's own Ingress is annotated.
+ingress: true
+
+# Off: every app in this repo uses a plain Ingress, and turning these on needs
+# extra rules in rbac.yaml (listed there).
+traefik: false
+gateway: false
