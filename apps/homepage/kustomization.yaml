@@ -1,0 +1,54 @@
+# Kustomize entrypoint for homepage. Synced by the homepage Application
+# (infra/argocd/applications/homepage-app.yaml).
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: homepage
+
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+
+# Descriptive labels only, never injected into selectors.
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/managed-by: argocd
+
+# Homepage's config files live under config/ as plain files, packed into one
+# ConfigMap here.
+
+# Grafana's sidecar and Loki's ruler watch their ConfigMaps and reload on their
+# own, so a fixed name is fine there. Homepage can't: deployment.yaml mounts each
+# file with subPath, and subPath mounts never pick up changes. With a fixed name,
+# an edit would sync, the ConfigMap would change, and the running pod would keep
+# serving the old config indefinitely.
+
+# With the hash, any edit gives the ConfigMap a new name, kustomize rewrites the
+# Deployment to match, and the pod rolls. Config changes become ordinary rollouts.
+# The old ConfigMap is removed on the same sync by prune: true (homepage-app.yaml).
+configMapGenerator:
+  - name: homepage-config
+    options:
+      labels:
+        app.kubernetes.io/name: homepage
+    files:
+      - config/settings.yaml
+      - config/services.yaml
+      - config/widgets.yaml
+      - config/bookmarks.yaml
+      - config/kubernetes.yaml
+      - config/docker.yaml
+      - config/custom.css
+      - config/custom.js
+
+# The one line that changes on upgrade. Releases: github.com/gethomepage/homepage/releases
+# Read the notes first: v1.0 broke every install that lacked HOMEPAGE_ALLOWED_HOSTS.
+images:
+  - name: ghcr.io/gethomepage/homepage
+    newTag: v2.7.0

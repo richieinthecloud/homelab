@@ -1,0 +1,136 @@
+# Runs the homepage dashboard (github.com/gethomepage/homepage).
+
+# A third-party image, not one built by our own app repos, but the rule from
+# galaga's deployment still applies: pin a real tag. Upstream's own example uses
+# ':latest' with imagePullPolicy: Always, which means git no longer describes
+# what's running. The tag itself is set in kustomization.yaml.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homepage
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+spec:
+  revisionHistoryLimit: 3
+  # ONE replica. Homepage keeps state per instance, 
+  # so behind a round-robin Service the page re-renders every time the
+  # tab regains focus. More than one needs sticky sessions on the Traefik route.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homepage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homepage
+    spec:
+      serviceAccountName: homepage
+      # Mounts the ServiceAccount token that 'mode: cluster' (config/kubernetes.yaml)
+      # reads. Without it homepage starts fine and simply discovers nothing.
+      automountServiceAccountToken: true
+      containers:
+        - name: homepage
+          image: ghcr.io/gethomepage/homepage # tag pinned in kustomization.yaml
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            # Required since homepage v1.0. Any request whose Host header isn't in
+            # this list gets a 400 "Host validation failed" instead of the page.
+            # It's an exact match, port included.
+            #
+            # The pod IP entry is not optional. The kubelet's probes below connect
+            # by IP and send Host: <pod IP>:3000, and in v2.7.0 /api/healthcheck
+            # runs the same host check. Leave it out and every probe fails, so the
+            # pod never goes Ready and restarts forever.
+            #
+            # localhost:3000 is always allowed, which is why a port-forward works
+            # before the hosts-file entry does.
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: HOMEPAGE_ALLOWED_HOSTS
+              value: "$(MY_POD_IP):3000,homepage.homelab.local"
+            # Homepage logs to stdout AND to a file under /app/config/logs by
+            # default. Alloy (alloy-app.yaml) already ships every pod's stdout to
+            # Loki, so the file would be a second copy that vanishes with the pod.
+            # stdout only also means nothing writes inside /app/config, so the
+            # read-only config mounts below need no writable volume beside them.
+            # Logs: Grafana -> Explore -> Loki: {namespace="homepage"}
+            - name: LOG_TARGETS
+              value: stdout
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          # Same shape as the monitoring apps: requests, and a memory limit as a
+          # ceiling, but no CPU limit. A CPU limit throttles page renders even when
+          # the node is idle. These are starting values: after a few days, check
+          # actual use with 'kubectl -n homepage top pod' and adjust.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /api/healthcheck # answers "up", no login needed
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/healthcheck
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          volumeMounts:
+            # One file at a time (subPath), not the whole ConfigMap over
+            # /app/config. Homepage expects all of these files to exist and exits
+            # if one is missing and it can't create it, so every file it looks for
+            # is provided, even the empty ones.
+            #
+            # subPath mounts never update when the ConfigMap changes. The
+            # configMapGenerator in kustomization.yaml handles that by rolling the
+            # pod instead -- see the note there.
+            - name: config
+              mountPath: /app/config/settings.yaml
+              subPath: settings.yaml
+            - name: config
+              mountPath: /app/config/services.yaml
+              subPath: services.yaml
+            - name: config
+              mountPath: /app/config/widgets.yaml
+              subPath: widgets.yaml
+            - name: config
+              mountPath: /app/config/bookmarks.yaml
+              subPath: bookmarks.yaml
+            - name: config
+              mountPath: /app/config/kubernetes.yaml
+              subPath: kubernetes.yaml
+            - name: config
+              mountPath: /app/config/docker.yaml
+              subPath: docker.yaml
+            - name: config
+              mountPath: /app/config/custom.css
+              subPath: custom.css
+            - name: config
+              mountPath: /app/config/custom.js
+              subPath: custom.js
+      volumes:
+        - name: config
+          configMap:
+            # No hash suffix here: kustomize rewrites this to the generated name.
+            name: homepage-config

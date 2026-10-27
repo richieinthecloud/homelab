@@ -1,0 +1,71 @@
+# The one place this app steps outside its namespace, deliberately.
+
+# Homepage finds other apps by reading their Ingresses across the cluster, and
+# draws CPU/memory from metrics-server. A namespaced Role would only ever see the
+# homepage namespace, which has nothing worth showing.
+
+# Kept to what homepage actually calls, the same way alloy-app.yaml trims the
+# Alloy chart's ClusterRole. Upstream's example also grants 'get', 'namespaces'
+# and the 'extensions' group. Checked against the v2.7.0 source: homepage only
+# ever lists, never reads namespaces, and 'extensions' left the Kubernetes API
+# in 1.22. No Secrets, no ConfigMaps, no writes. Worst case if homepage is
+# compromised: someone learns which apps exist and how busy the nodes are.
+
+# If a future release needs more, its logs say so, e.g.
+#   Error getting ingresses: 403 ...
+# Grafana -> Explore -> Loki: {namespace="homepage"} |= "403"
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: homepage
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+# No long-lived token Secret. With mode: cluster, homepage
+# uses the short-lived token Kubernetes mounts into the pod (see
+# automountServiceAccountToken in deployment.yaml), which rotates on its own.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+rules:
+  # pods: which pods sit behind a discovered Ingress, and whether they're running
+  #       (the status dot on each tile).
+  # nodes: node names and capacity, for the kubernetes info widget (phase 3).
+  - apiGroups: [""]
+    resources: ["pods", "nodes"]
+    verbs: ["list"]
+  # Discovery itself: every Ingress, read for gethomepage.dev/* annotations.
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["list"]
+  # CPU and memory per pod and per node, from the metrics-server k3s bundles.
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["list"]
+  # Not granted: traefik.io IngressRoutes and gateway.networking.k8s.io, needed
+  # only if config/kubernetes.yaml turns on 'traefik' or 'gateway' discovery.
+  # 'traefik: true' would also need 'get' on apiextensions.k8s.io
+  # customresourcedefinitions/status: homepage checks the CRD exists first.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: homepage
+subjects:
+  - kind: ServiceAccount
+    name: homepage
+    # Written out, not left to kustomize's namespace setting. A binding to the
+    # wrong namespace fails quietly: 403s in homepage's logs and an empty
+    # dashboard, with nothing wrong in 'kubectl get'.
+    namespace: homepage

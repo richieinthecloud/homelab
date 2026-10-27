@@ -1,0 +1,17 @@
+# Plain links, no cluster access involved. They render even if discovery is
+# broken, so they're the first check that the config is being read at all.
+# The group name matches the "Links" layout in settings.yaml.
+
+- Links:
+    - Homelab repo:
+        - abbr: GH
+          href: https://github.com/richieinthecloud/homelab
+    - k3s docs:
+        - abbr: K3
+          href: https://docs.k3s.io/
+    - Argo CD docs:
+        - abbr: AR
+          href: https://argo-cd.readthedocs.io/en/stable/
+    - Homepage docs:
+        - abbr: HP
+          href: https://gethomepage.dev/

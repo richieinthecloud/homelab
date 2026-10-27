@@ -1,0 +1,35 @@
+# The way in, through k3s's bundled Traefik.
+
+# This host MUST also be in HOMEPAGE_ALLOWED_HOSTS (deployment.yaml). Changing
+# one without the other is the easiest way to break homepage, and the error
+# ("Host validation failed") doesn't point back here.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homepage
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+  annotations:
+    # Homepage discovering itself. The cheapest end-to-end test there is: if this
+    # tile shows up, mode: cluster, the ServiceAccount and the ClusterRole all
+    # work, before any other app has been annotated.
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/name: Homepage
+    gethomepage.dev/group: Cluster # matches the layout in config/settings.yaml
+    gethomepage.dev/icon: homepage.png
+    gethomepage.dev/description: This dashboard
+spec:
+  ingressClassName: traefik # the IngressClass k3s installs by default
+  rules:
+    - host: homepage.homelab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: homepage
+                port:
+                  name: http
