@@ -250,6 +250,19 @@ spec:
             ingressClassName: traefik # the IngressClass k3s installs by default
             hosts:
               - grafana.homelab.local
+            # Puts Grafana on the homepage dashboard (apps/homepage). The chart runs
+            # every value through tpl, which only accepts strings: quote them all,
+            # "true" included, or the whole chart fails to render.
+            # Only the Ingress changes; Grafana itself doesn't restart.
+            annotations:
+              gethomepage.dev/enabled: "true"
+              gethomepage.dev/name: "Grafana"
+              gethomepage.dev/group: "Monitoring"
+              gethomepage.dev/icon: "grafana.png"
+              gethomepage.dev/description: "Metrics, logs and dashboards"
+              # Homepage looks for pods named after the Ingress, which the chart calls
+              # monitoring-grafana. The pods are labelled app.kubernetes.io/name=grafana.
+              gethomepage.dev/app: "grafana"
 
           sidecar:
             dashboards:

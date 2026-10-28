@@ -11,12 +11,18 @@ headerStyle: boxed
 statusStyle: dot
 
 # Group order on the page. Only list groups that have something in them: a group
-# named here with no services still gets an empty heading. Each phase adds its
-# groups as it adds their services (Games when galaga is annotated, ...).
+# named here with no services still gets an empty heading. Add a group here in the
+# same commit as the first Ingress annotated with it.
 #
 # Service and bookmark groups must not share a name, or one hides the other --
 # hence "Links" for the bookmarks.
 layout:
+  Games:
+    style: row
+    columns: 3
+  Monitoring:
+    style: row
+    columns: 3
   Cluster:
     style: row
     columns: 3
