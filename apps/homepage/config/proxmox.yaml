@@ -1,0 +1,4 @@
+# No Proxmox here. This file exists only because homepage insists on it: every
+# page load calls /api/validate, which checks proxmox.yaml along with the other
+# config files and exits the whole process if one is missing and can't be
+# created. /app/config is read-only, so it has to be provided, even empty.
