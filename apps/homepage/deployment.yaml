@@ -100,7 +100,9 @@ spec:
             # One file at a time (subPath), not the whole ConfigMap over
             # /app/config. Homepage expects all of these files to exist and exits
             # if one is missing and it can't create it, so every file it looks for
-            # is provided, even the empty ones.
+            # is provided, even the empty ones. The list is the union of what
+            # upstream's src/pages/api/validate.js and src/pages/api/hash.js check;
+            # compare against both before bumping the image tag.
             #
             # subPath mounts never update when the ConfigMap changes. The
             # configMapGenerator in kustomization.yaml handles that by rolling the
@@ -123,6 +125,9 @@ spec:
             - name: config
               mountPath: /app/config/docker.yaml
               subPath: docker.yaml
+            - name: config
+              mountPath: /app/config/proxmox.yaml
+              subPath: proxmox.yaml
             - name: config
               mountPath: /app/config/custom.css
               subPath: custom.css

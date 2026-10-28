@@ -51,3 +51,28 @@ spec:
         - targetLabel: instance
           replacement: grafana.homelab.local 
           action: replace # CRD default; written out so ArgoCD's diff matches the live object
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: homepage
+spec:
+  jobName: homelab-sites
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+    path: /probe
+  module: http_2xx
+  params:
+    - name: hostname
+      values: ["homepage.homelab.local"]
+  targets:
+    staticConfig:
+      static:
+        # Homepage's health endpoint: answers "up" without rendering the dashboard.
+        # It runs homepage's host check, so a 400 here (with the pod healthy) means
+        # the Ingress host and HOMEPAGE_ALLOWED_HOSTS have drifted apart.
+        - http://traefik.kube-system.svc.cluster.local/api/healthcheck
+      relabelingConfigs:
+        - targetLabel: instance
+          replacement: homepage.homelab.local
+          action: replace # CRD default; written out so ArgoCD's diff matches the live object
