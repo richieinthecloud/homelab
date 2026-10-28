@@ -13,6 +13,17 @@ metadata:
   namespace: galaga
   labels:
     app.kubernetes.io/name: galaga
+  annotations:
+    # Puts galaga on the homepage dashboard (apps/homepage), which reads these
+    # straight off the Ingress. Homepage finds the pods behind it by the label
+    # app.kubernetes.io/name=<Ingress name>, which is 'galaga' for both here, so
+    # the status dot works with no extra annotation. With three replicas the dot
+    # reads 'partial' while some of them are down.
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/name: Galaga
+    gethomepage.dev/group: Games # matches the layout in apps/homepage/config/settings.yaml
+    gethomepage.dev/icon: mdi-space-invaders # Material Design Icons; there's no galaga.png
+    gethomepage.dev/description: HTML5 Galaga clone
 spec:
   ingressClassName: traefik # the IngressClass k3s installs by default
   rules:
