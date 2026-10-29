@@ -47,6 +47,31 @@
              | rejectattr('status.robustness', 'equalto', 'healthy')
              | map(attribute='metadata.name') | list }}
 
+    - name: Pre-flight | read the other storage nodes
+      kubernetes.core.k8s_info:
+        kind: Node
+        name: "{{ item }}"
+      loop: "{{ groups['longhorn_storage'] | difference([inventory_hostname]) }}"
+      register: other_storage_nodes
+      delegate_to: localhost
+      become: false
+
+    - name: Pre-flight | refuse to start while another storage node is cordoned
+      # Longhorn doesn't count replicas on a cordoned node as safe copies, so it
+      # keeps this node's instance-manager PDB and the drain hangs until timeout.
+      # A node left cordoned by an earlier failed run is the usual cause.
+      ansible.builtin.assert:
+        that: cordoned | length == 0
+        fail_msg: >-
+          Not touching {{ inventory_hostname }}: {{ cordoned }} still cordoned.
+          Run `kubectl uncordon <node>` first.
+      vars:
+        cordoned: >-
+          {{ other_storage_nodes.results | map(attribute='resources') | flatten
+             | selectattr('spec.unschedulable', 'defined')
+             | selectattr('spec.unschedulable')
+             | map(attribute='metadata.name') | list }}
+
     # ---- Move workloads off ---------------------------------------------------
     - name: Drain {{ inventory_hostname }}
       # kubectl drain, not kubernetes.core.k8s_drain: the module tries each
