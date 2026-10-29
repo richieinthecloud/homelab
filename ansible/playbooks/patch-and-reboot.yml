@@ -9,7 +9,7 @@
 
 # The control-plane (k3s_server) is deliberately out of scope: it is patched and rebooted by hand
 
-# Needs on this workstation: kubectl access (playbooks/fetch-kubeconfig.yml),
+# Needs on this workstation: kubectl on PATH with access (playbooks/fetch-kubeconfig.yml),
 # python3-kubernetes, and the collections in requirements.yml.
 
 - name: Patch and reboot workers one at a time
@@ -49,13 +49,21 @@
 
     # ---- Move workloads off ---------------------------------------------------
     - name: Drain {{ inventory_hostname }}
-      kubernetes.core.k8s_drain:
-        name: "{{ inventory_hostname }}"
-        state: drain
-        delete_options:
-          ignore_daemonsets: true
-          delete_emptydir_data: true
-          wait_timeout: 600   # seconds to wait for pods to leave
+      # kubectl drain, not kubernetes.core.k8s_drain: the module tries each
+      # eviction once and fails on the first PodDisruptionBudget refusal.
+      # Longhorn guards every instance-manager pod with a PDB that it only
+      # removes after the workloads using its volumes have left the node, so
+      # that eviction is always refused at first. kubectl drain keeps retrying
+      # refused evictions until --timeout, which gives Longhorn time to let go.
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - drain
+          - "{{ inventory_hostname }}"
+          - --ignore-daemonsets
+          - --delete-emptydir-data
+          - --timeout=600s    # seconds to wait for pods to leave
+      changed_when: true
       delegate_to: localhost
       become: false
 
