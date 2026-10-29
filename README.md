@@ -25,6 +25,10 @@ All three nodes run **Ubuntu Server 24.04**, accessed remotely via SSH (key-base
 - **Ansible**: configures the nodes themselves (OS packages, k3s config, the lid-close setting), patches and reboots workers one at a time, backs up etcd and restores the control-plane. ArgoCD owns everything *inside* the cluster; Ansible owns the machines *under* it
 - **Longhorn**: distributed block storage, replicating each volume across the two worker nodes
 - **Prometheus + Grafana** (kube-prometheus-stack): metrics for the hardware, the cluster and its workloads. node-exporter on every node covers CPU, memory, disks, temperatures, fans and the MacBook's battery; Grafana at `grafana.homelab.local` visualizes it
+- **Alertmanager**: routes alerts to Slack (critical to `#homelab-critical`, warnings to `#homelab-warnings`), plus a healthchecks.io dead man's switch that alerts from outside the house if the cluster goes silent
+- **Loki + Alloy**: logs. Alloy runs on every node and ships pod logs, the k3s/iscsid/ssh journal, kernel messages and Kubernetes events to Loki, which keeps 7 days, searchable in Grafana. Log-based alerts (OOM kills, disk I/O errors, failing volume mounts) go to the same Alertmanager
+- **Blackbox exporter + smartctl exporter**: end-to-end checks of each site through Traefik plus GitHub/GHCR reachability, and SMART health for every disk on all three nodes
+- **Homepage**: dashboard at `homepage.homelab.local` with a tile per app. Apps add themselves through `gethomepage.dev/*` annotations on their Ingress; per-node CPU/memory and the Prometheus and Argo CD tiles read metrics-server and Prometheus, so it holds no credentials
 - **Kubernetes manifests**: plain YAML to start, with a planned migration to **Helm charts** once the underlying patterns are second nature
 - **GitHub**: source of truth for all infrastructure/deployment config
 
@@ -40,13 +44,14 @@ The two are linked only by container image tags: an app repo builds and publishe
 apps/                      Kubernetes manifests, one folder per application
 infra/argocd/applications/ ArgoCD Application definitions (what ArgoCD watches)
 clusters/homelab/          Cluster-level bootstrap config
+ansible/                   Playbooks and roles that configure the nodes themselves
 ```
 
 ## Workloads
 
 - **Galaga**: a containerized version of a Galaga clone, used as the first test deployment to validate the cluster and GitOps pipeline end-to-end before adding anything more complex
-- **Immich**: a self-hosted photo/video management platform, deployed once the pipeline is proven out with Galaga. Introduces persistent storage (PVCs) as a new concept beyond the stateless Galaga deployment
+- **Immich** (Coming Soon): a self-hosted photo/video management platform, deployed once the pipeline is proven out with Galaga. Introduces persistent storage (PVCs) as a new concept beyond the stateless Galaga deployment
 
 ## Status
 
-🚧 Actively under construction — this is a learning project, and the README/structure will evolve as new tools and workloads are added.
+🚧 Actively under construction — The README/structure will evolve as new tools and workloads are added.
