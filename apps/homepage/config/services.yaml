@@ -1,6 +1,73 @@
-# Empty on purpose. Services in this cluster are discovered from their Ingress
-# annotations, so adding one never touches this file.
+# Services with no Ingress for homepage to discover. Anything with an Ingress
+# (galaga, Grafana, homepage itself) adds itself with gethomepage.dev/*
+# annotations; only what discovery can't see belongs here. A group named here and
+# by an annotation merges into one, discovered tiles first.
 #
-# Write entries here only for things with no Ingress to discover: the router,
-# a NAS, anything outside the cluster. Discovered services always render above
-# the ones written here.
+# Both widgets below ask Prometheus, not the app itself, so neither needs a login
+# or a Secret: Prometheus has no login, and it already scrapes Argo CD
+# (apps/monitoring/servicemonitors/argocd.yaml). Asking Argo CD's own API instead
+# would need an API token for an Argo CD account created by hand outside git, and
+# that API only answers over HTTPS with a self-signed certificate.
+#
+# Homepage's pod fetches the widget URLs, not your browser, so in-cluster Service
+# names work and the Prometheus address never reaches the browser. The queries
+# do: the browser sends each one through homepage's proxy. So anyone who can open
+# homepage can run read-only queries against Prometheus through it -- every metric,
+# no login. Fine on a trusted LAN; homepage's own login (phase 4) closes it.
+#
+# Neither has an Ingress, so href points at the port-forward each is reached
+# through (monitoring-app.yaml, argocd-bootstrap.yaml). The link only works while
+# that port-forward is running.
+#
+# Counts end in 'or vector(0)': a count over nothing returns no result at all,
+# which the widget shows as '-' rather than 0.
+
+- Monitoring:
+    - Prometheus:
+        icon: prometheus.png
+        href: http://localhost:9090
+        description: Metrics and alerts
+        # Status dot: the Prometheus pod. Click it for live CPU and memory.
+        namespace: monitoring
+        app: prometheus # pod label app.kubernetes.io/name=prometheus
+        widget:
+          type: prometheusmetric
+          url: http://monitoring-kube-prometheus-prometheus.monitoring.svc:9090
+          refreshInterval: 30000 # Prometheus scrapes every 30s; asking more often shows nothing new
+          metrics:
+            - label: Targets up
+              query: count(up == 1)
+            - label: Targets down
+              query: count(up == 0) or vector(0)
+            # Firing Prometheus alerts, by the same severities Alertmanager routes on
+            # (monitoring-app.yaml). Watchdog and InfoInhibitor are severity "none",
+            # so they never count. Log alerts from Loki's ruler go straight to
+            # Alertmanager and aren't included here.
+            - label: Critical
+              query: count(ALERTS{alertstate="firing", severity="critical"}) or vector(0)
+            - label: Warnings
+              query: count(ALERTS{alertstate="firing", severity="warning"}) or vector(0)
+
+- Cluster:
+    - Argo CD:
+        icon: argo-cd.png
+        href: https://localhost:8080
+        description: GitOps
+        # Status dot: every pod in the argocd namespace. Argo CD's components share
+        # no common label, and an empty podSelector selects the whole namespace.
+        namespace: argocd
+        app: argocd
+        podSelector: ""
+        widget:
+          type: prometheusmetric
+          url: http://monitoring-kube-prometheus-prometheus.monitoring.svc:9090
+          refreshInterval: 30000
+          metrics:
+            # argocd_app_info: one series per Application, the same metric the
+            # ArgoApp* alerts in apps/monitoring/rules/homelab.yaml use.
+            - label: Apps
+              query: count(argocd_app_info)
+            - label: Out of sync
+              query: count(argocd_app_info{sync_status!="Synced"}) or vector(0)
+            - label: Not healthy
+              query: count(argocd_app_info{health_status!="Healthy"}) or vector(0)
