@@ -59,13 +59,14 @@
 # Customizes k3s's bundled Traefik. K3s watches this folder and applies changes
 # on its own, so no "Restart k3s" hanlder is needed. Helm replaces the Traefik
 # pod, so ingress (galaga, homepage, grafana, immich) drops for a few seconds while it reconfigures.
-- name: Traefik customizations (HelmChartConfig)
-  ansible.builtin.copy:
-    src: traefik-config.yaml
+- name: Traefik customizations (HelmChartConfig + dashboard login)
+  ansible.builtin.template:
+    src: traefik-config.yaml.j2
     dest: /var/lib/rancher/k3s/server/manifests/traefik-config.yaml
     owner: root
     group: root
-    mode: "0600"
+    mode: "0600" # holds the dashboard password hash: root-only, like the token
+  diff: false  # don't print the hash with -diff. same logic with the token task 
 
 - name: k3s server config
   ansible.builtin.template:

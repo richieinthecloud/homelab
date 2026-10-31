@@ -1,0 +1,53 @@
+# managed by ansible (homelab/ansible/roles/k3s_server). local edits will be overwritten by Ansible.
+#
+# Two objects in one file:
+#   1. a Secret holding the dashboard login (bcrypt hash, from Ansible Vault)
+#   2. the HelmChartConfig that overrides k3s's bundled Traefik chart
+
+# 1. The login. Traefik's basicAuth reads htpasswd-format lines from the 'users' key.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: traefik-dashboard-auth
+  namespace: kube-system # same namespace as the Middleware; cross-namespace refs are off by default
+type: Opaque
+stringData: # plain text here; Kubernetes base64-encodes it on save
+  users: '{{ traefik_dashboard_htpasswd }}'
+---
+# 2. Overrides values in k3s's bundled Traefik chart.
+# Must be named "traefik" in kube-system to match k3s's HelmChart,
+# otherwise k3s silently ignores it.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    # extraObjects: the chart creates these alongside Traefik itself, so the
+    # lock is installed and removed together with the door.
+    extraObjects:
+      - apiVersion: traefik.io/v1alpha1
+        kind: Middleware
+        metadata:
+          name: dashboard-auth
+          namespace: kube-system
+        spec:
+          basicAuth:
+            secret: traefik-dashboard-auth # the Secret above
+            removeHeader: true # don't forward the Authorization header to the backend
+
+    ingressRoute:
+      dashboard:
+        enabled: true
+        # Host() scopes BOTH paths to this one name, so grafana's and homepage's
+        # /api/* paths are never captured by the dashboard.
+        matchRule: Host(`traefik.homelab.local`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+        # websecure = port 443. Never 'web' (80) with basicAuth: the password
+        # would cross the network in plain base64.
+        entryPoints: ["websecure"]
+        middlewares:
+          - name: dashboard-auth # the lock on the door
+        # No 'tls' block needed: the chart turns TLS on for the whole websecure
+        # entrypoint. Until cert-manager exists, Traefik serves its self-signed
+        # default cert, so the browser warns once.
