@@ -1,0 +1,176 @@
+# Loki: stores logs the way Prometheus stores metrics, and Grafana queries both.
+# Logs are shipped in by Grafana Alloy (alloy-app.yaml); this file is only the store.
+
+# Monolithic mode: one pod runs every Loki component, with chunks and index on a
+# plain filesystem (a Longhorn PVC). No object storage, no caches. Plenty for a
+# homelab: each node's entire journal is a few hundred MB, and pod logs are a few MB.
+
+# The open-source Loki chart moved from grafana/helm-charts to grafana-community in
+# 2026. The 'loki' chart still in grafana.github.io is now Grafana Enterprise Logs.
+
+# Reach Loki from Grafana (Explore -> Loki) or directly with:
+#    kubectl -n monitoring port-forward svc/loki 3100
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  # No finalizer: Loki holds data. Removing this Application should leave the logs and
+  # the PVC alone (the StorageClass is Retain anyway).
+spec:
+  project: default
+
+  source:
+    repoURL: https://grafana-community.github.io/helm-charts
+    chart: loki
+    targetRevision: 19.1.1 # Loki 3.7.9
+    helm:
+      valuesObject:
+        # Without this the chart names some objects 'loki' and others after the release.
+        # Alloy pushes to, and Grafana reads from:  loki.monitoring.svc:3100
+        fullnameOverride: loki
+
+        deploymentMode: Monolithic # 'SingleBinary' is the old, deprecated name
+
+        loki:
+          # Single tenant. Without this every push and query needs an X-Scope-OrgID header.
+          auth_enabled: false
+
+          commonConfig:
+            replication_factor: 1
+
+          storage:
+            type: filesystem
+
+          # How logs are laid out on disk. tsdb + v13 is the current recommended schema.
+          # 'from' must stay as it is forever: a future schema change adds a second
+          # entry with a later date, it never edits this one.
+          schemaConfig:
+            configs:
+              - from: "2026-10-01"
+                store: tsdb
+                object_store: filesystem
+                schema: v13
+                index:
+                  prefix: index_
+                  period: 24h
+
+          # 7 days of logs, the same as Prometheus keeps metrics. The compactor deletes
+          # anything older (roughly 2h after it expires).
+          limits_config:
+            retention_period: 168h
+          compactor:
+            retention_enabled: true
+            delete_request_store: filesystem
+
+          # Powers the Patterns tab in Grafana's Logs Drilldown (common log lines grouped).
+          pattern_ingester:
+            enabled: true
+
+          # Don't send anonymous usage stats to stats.grafana.org.
+          analytics:
+            reporting_enabled: false
+
+          # The ruler runs LogQL alert rules (apps/monitoring/rules/loki-homelab.yaml)
+          # and sends what fires to the same Alertmanager as Prometheus.
+          rulerConfig:
+            storage:
+              type: local
+              local:
+                # One folder per tenant; with auth off the only tenant is 'fake'.
+                directory: /etc/loki/rules
+            alertmanager_url: http://monitoring-kube-prometheus-alertmanager.monitoring.svc:9093
+            # Lets Grafana list these rules (Alerting -> Alert rules).
+            enable_api: true
+
+        singleBinary:
+          replicas: 1
+          persistence:
+            storageClass: longhorn # explicit, longhorn is not the default class
+            # Longhorn keeps 2 replicas, so this uses 20Gi of real disk split across the
+            # MacBook and the Optiplex.
+            size: 10Gi
+          # The Optiplex has the most free RAM. Preferred, not required: if it is down,
+          # Loki starts elsewhere and its Longhorn volume follows it.
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: In
+                        values: [ubuntu-optiplex]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+
+          # The rules, from the 'loki-rules' ConfigMap (apps/monitoring). The chart's own
+          # ruler.directories option only creates that ConfigMap in distributed mode, so
+          # it's mounted here directly. It is optional, Loki still stars without it.
+          extraVolumes:
+            - name: rules
+              configMap:
+                name: loki-rules
+                optional: true
+          extraVolumeMounts:
+            - name: rules
+              mountPath: /etc/loki/rules/fake
+              readOnly: true
+
+        # Components of the other deployment modes: none.
+        read:
+          replicas: 0
+        write:
+          replicas: 0
+        backend:
+          replicas: 0
+
+        # On by default, not needed here:
+        #  - gateway: an nginx in front of Loki, only useful for multi-tenant or auth
+        #  - chunksCache/resultsCache/memcached: memcached pods sized in GBs of RAM
+        #  - lokiCanary/test: a DaemonSet that writes test logs, and a Helm test pod
+        #  - sidecar.rules: loads LogQL alert rules from ConfigMaps (none yet)
+        gateway:
+          enabled: false
+        chunksCache:
+          enabled: false
+        resultsCache:
+          enabled: false
+        memcached:
+          enabled: false
+        lokiCanary:
+          enabled: false
+        test:
+          enabled: false
+        sidecar:
+          rules:
+            enabled: false
+
+        # Loki's own metrics (ingestion rate, request errors, compactor runs).
+        monitoring:
+          serviceMonitor:
+            enabled: true
+            interval: 30s # match the Prometheus default
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true

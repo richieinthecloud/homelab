@@ -1,0 +1,6 @@
+# Applies the udev rule to the running machine, so no reboot is needed. 'bind' only
+# re-runs the rules for the GPU; it doesn't unload or reload the driver.
+- name: Apply GPU power rule
+  ansible.builtin.shell: |
+    udevadm control --reload
+    udevadm trigger --action=bind --subsystem-match=pci --attr-match=vendor=0x8086 --attr-match=device=0x0a2e

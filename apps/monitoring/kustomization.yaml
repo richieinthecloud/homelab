@@ -1,0 +1,117 @@
+# Our own additions to the monitoring stack: dashboards and ServiceMonitors now, and
+# later Probes and alert rules. Synced by the monitoring-config Application.
+
+# Unlike galaga, there is no namespace.yaml here. The monitoring namespace also holds
+# Prometheus and Grafana, which belong to the 'monitoring' Application. If this folder
+# owned the namespace, removing monitoring-config would delete the namespace and
+# everything in it.
+
+# Always write 'action:' on relabel rules, even 'replace': the CRD fills it in when
+# it's missing, and ArgoCD then reports the object OutOfSync forever.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: monitoring
+
+resources:
+  - servicemonitors/argocd.yaml
+  - probes/homelab.yaml
+  - probes/internet.yaml
+  - podmonitors/traefik.yaml
+  - rules/homelab.yaml
+  - scrapeconfigs/k3s-etcd.yaml
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/managed-by: argocd
+
+generatorOptions:
+  # Keep ConfigMap names fixed (no hash suffix), so they're easy to find with kubectl.
+  disableNameSuffixHash: true
+
+# Dashboards. Grafana's sidecar loads every ConfigMap labelled grafana_dashboard=1,
+# and the grafana_folder annotation picks the folder it appears in.
+configMapGenerator:
+  # Node Exporter Full, from github.com/rfmoz/grafana-dashboards (Apache-2.0),
+  # commit 99a25cc154c21c4fcbae1aa24352bf1b6764d847. To upgrade, replace the JSON file.
+  - name: dashboard-node-exporter-full
+    files:
+      - dashboards/node-exporter-full.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
+
+  # Longhorn: written for this repo against Longhorn 1.12 metrics (volume robustness
+  # is reported per state, so older community dashboards misread it).
+  - name: dashboard-longhorn
+    files:
+      - dashboards/longhorn.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
+
+  # Argo CD's own example dashboard, from github.com/argoproj/argo-cd (Apache-2.0),
+  # tag v3.5.5, examples/dashboard.json. To upgrade, replace the JSON file.
+  - name: dashboard-argocd
+    files:
+      - dashboards/argocd.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
+
+  # Probes: written for this repo against blackbox_exporter v0.29.0 metrics.
+  - name: dashboard-probes
+    files:
+      - dashboards/probes.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
+  
+  # Traefik's official Kubernetes dashboard, from github.com/traefik/traefik (MIT),
+  # tag v3.7.8, contrib/grafana/traefik-kubernetes.json. To upgrade, replace the file.
+  - name: dashboard-traefik
+    files:
+      - dashboards/traefik.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
+
+  # Disk health (SMART): written for this repo against smartctl_exporter v0.14.0 metrics.
+  - name: dashboard-disk-health
+    files:
+      - dashboards/disk-health.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
+
+  # Logs: written for this repo against Loki 3.7 and the labels Alloy sets
+  # (alloy-app.yaml): job, instance, namespace, pod, unit, level, type.
+  - name: dashboard-logs
+    files:
+      - dashboards/logs.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Homelab
+
+  # Log alert rules for Loki's ruler, mounted into Loki by loki-app.yaml. The key
+  # (homelab.yaml) is the file name Loki sees.
+  - name: loki-rules
+    files:
+      - homelab.yaml=rules/loki-homelab.yaml

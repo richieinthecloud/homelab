@@ -1,0 +1,201 @@
+# Alerts written for this homelab, on top of the ~100 kube-prometheus-stack ships.
+# Severity decides where they go (see Alertmanager in monitoring-app.yaml):
+#   critical -> #homelab-critical (notifications on), repeats every 4h
+#   warning  -> #homelab-warnings (muted), repeats daily
+
+# node-exporter and Longhorn label their metrics with an IP address. Where that's the
+# case, label_replace() swaps 'instance' for the node's name, so the Slack message says
+# 'ubuntu-macbook-pro' instead of '192.168.1.x:9100'.
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: homelab
+spec:
+  groups:
+    - name: homelab-hardware
+      rules:
+        - alert: NodeHighTemperature
+          expr: label_replace((max by (instance) (node_hwmon_temp_celsius) > 85) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Running hot: {{ $value | humanize }}°C on its hottest sensor."
+            description: "Above 85°C for 10 minutes. Check airflow and load."
+        - alert: NodeCriticalTemperature
+          expr: label_replace((max by (instance) (node_hwmon_temp_celsius) > 95) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Overheating: {{ $value | humanize }}°C."
+            description: "Above 95°C. The CPU is throttling hard and may shut down to protect itself."
+        - alert: NodeCPUThrottling
+          expr: label_replace((sum by (instance) (rate(node_cpu_core_throttles_total[5m])) > 0) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CPU has been slowing itself down to stay cool for 15 minutes."
+            description: "Thermal throttling: the machine is running slower than it should. Usually dust, a failing fan, or a lid-closed laptop with poor airflow."
+        - alert: NodeOnBattery
+          expr: label_replace((node_power_supply_online == 0 and on(instance, power_supply) node_power_supply_info{type="Mains"}) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Running on battery: mains power is gone."
+            description: "The charger is unplugged or the power is out. The node will drop when the battery runs flat."
+
+    - name: homelab-storage
+      rules:
+        - alert: LonghornVolumeDegraded
+          expr: label_replace(longhorn_volume_robustness{state="degraded"} == 1, "instance", "$1", "node", "(.*)")
+          for: 30m # replicas rebuild for a while after every patch-and-reboot; only alert if it sticks
+          labels:
+            severity: warning
+          annotations:
+            summary: "Volume {{ $labels.pvc_namespace }}/{{ $labels.pvc }} is running on fewer replicas than configured."
+            description: "Degraded for 30 minutes. Data is still available, but one more failure could take it offline. Check the Longhorn UI."
+        - alert: LonghornVolumeFaulted
+          expr: label_replace(longhorn_volume_robustness{state="faulted"} == 1, "instance", "$1", "node", "(.*)")
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Volume {{ $labels.pvc_namespace }}/{{ $labels.pvc }} has no healthy replica left."
+            description: "The data is unavailable until a replica recovers."
+        - alert: LonghornDiskUnhealthy
+          expr: label_replace(longhorn_disk_health == 0, "instance", "$1", "node", "(.*)")
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Longhorn disk {{ $labels.disk }} failed its health check."
+            description: "The disk's SMART self-assessment failed. Back up and plan to replace it."
+
+    - name: homelab-sites
+      rules:
+        - alert: SiteDown
+          expr: probe_success{job="homelab-sites"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Not reachable through Traefik for 5 minutes."
+            description: "Check the pods, then the Ingress and Traefik. The Probes dashboard shows where it fails."
+        - alert: InternetServiceUnreachable
+          expr: probe_success{job="internet"} == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The cluster can't reach this for 15 minutes."
+            description: "ArgoCD syncs or image pulls that depend on it will fail. Usually your internet connection, sometimes the service itself."
+
+    - name: homelab-gitops
+      rules:
+        - alert: ArgoAppOutOfSync
+          expr: label_replace(argocd_app_info{sync_status="OutOfSync"} == 1, "instance", "$1", "name", "(.*)")
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ArgoCD app hasn't matched git for 30 minutes."
+            description: "Auto-sync is on, so this usually means a sync keeps failing. Open the app in ArgoCD."
+        - alert: ArgoAppUnhealthy
+          expr: label_replace(argocd_app_info{health_status=~"Degraded|Missing"} == 1, "instance", "$1", "name", "(.*)")
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ArgoCD app is {{ $labels.health_status }}."
+            description: "Something the app deployed isn't running properly. Open the app in ArgoCD to see which resource."
+    
+    - name: homelab-host
+      rules:
+        - alert: NodeRebootRequired
+          expr: label_replace((homelab_reboot_required == 1) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 48h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Has needed a reboot for 2 days (usually a new kernel)."
+            description: "Run ansible/playbooks/patch-and-reboot.yml for workers; the HP is rebooted by hand."
+        - alert: NodeSecurityUpdatesPending
+          expr: label_replace((homelab_apt_security_upgrades_pending > 0) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 3d
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value }} security updates waiting for 3 days."
+            description: "unattended-upgrades normally installs these daily, so it may be stuck. Check 'systemctl status unattended-upgrades' or run patch-and-reboot.yml."
+        - alert: EtcdSnapshotStale
+          expr: label_replace((time() - homelab_etcd_snapshot_newest_timestamp_seconds > 26 * 3600) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "No new etcd snapshot for over 26 hours."
+            description: "k3s takes one every 12 hours, so at least two in a row were missed. Check 'k3s etcd-snapshot ls' on the HP and the k3s logs."
+        - alert: K3sCertificateExpiringSoon
+          expr: label_replace(((homelab_k3s_cert_expiry_timestamp_seconds - time()) < 60 * 86400) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "k3s certificate {{ $labels.cert }} expires in under 60 days."
+            description: "k3s renews certificates when it starts and they're close to expiry. Restart k3s (or k3s-agent) on this node."
+        - alert: K3sCertificateExpiryImminent
+          expr: label_replace(((homelab_k3s_cert_expiry_timestamp_seconds - time()) < 7 * 86400) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "k3s certificate {{ $labels.cert }} expires in under 7 days."
+            description: "When it expires this node drops out of the cluster. Restart k3s (or k3s-agent) on this node now."
+        - alert: HostMetricsStale
+          expr: label_replace((time() - node_textfile_mtime_seconds{file=~".*homelab_host\\.prom"} > 3600) * on(instance) group_left(nodename) node_uname_info, "instance", "$1", "nodename", "(.*)")
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Host checks (updates, snapshots, certificates) haven't updated for over an hour."
+            description: "The homelab-host-metrics timer has stopped. Check 'systemctl status homelab-host-metrics.timer' on this node."
+
+    # The log pipeline itself (Alloy -> Loki -> Loki's ruler -> Alertmanager). The
+    # log-based alerts live in rules/loki-homelab.yaml; these make sure they can work.
+    - name: homelab-logs
+      rules:
+        - alert: AlloyDroppingLogs
+          expr: label_replace((sum by (pod, reason) (increase(loki_write_dropped_entries_total[15m])) > 0) * on(pod) group_left(node) max by (pod, node) (kube_pod_info{namespace="monitoring"}), "instance", "$1", "node", "(.*)")
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alloy dropped {{ $value | humanize }} log lines in the last 15 minutes ({{ $labels.reason }})."
+            description: "Loki refused them or couldn't be reached. Check: kubectl -n monitoring logs {{ $labels.pod }} -c alloy | grep level=error"
+        - alert: LokiRulesNotLoaded
+          expr: absent(loki_prometheus_rule_group_rules)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki isn't running any log alert rules."
+            description: "Either Loki is down or the loki-rules ConfigMap has a mistake. Check: kubectl -n monitoring logs loki-0 | grep 'unable to list rules'"
+        - alert: LokiRuleEvaluationFailing
+          expr: sum(increase(loki_prometheus_rule_evaluation_failures_total[10m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki's log alert rules are failing to run."
+            description: "A query in rules/loki-homelab.yaml errors out. Check: kubectl -n monitoring logs loki-0 | grep -i 'rule evaluation'"
+        - alert: LokiAlertsNotDelivered
+          expr: sum(increase(loki_prometheus_notifications_errors_total[10m])) + sum(increase(loki_prometheus_notifications_dropped_total[10m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki can't deliver log alerts to Alertmanager."
+            description: "Log-based alerts (OOM kills, disk errors, volume mounts) won't reach Slack. Check alertmanager_url in loki-app.yaml and: kubectl -n monitoring logs loki-0 | grep -i notifier"

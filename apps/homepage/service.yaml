@@ -1,0 +1,20 @@
+# Stable in-cluster address for the homepage pod.
+# ClusterIP: Traefik already holds ports 80/443 on
+# the nodes, so traffic comes in through the Ingress, not a LoadBalancer.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: homepage
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: homepage
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3000 # homepage's own port; nothing gained by remapping it to 80
+      targetPort: http

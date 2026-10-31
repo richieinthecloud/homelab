@@ -36,6 +36,14 @@
       token on {{ inventory_hostname }}. Fix the vault before running again.
     quiet: true
 
+- name: Refuse to run unless this host has an IPv4 default route (for node-ip)
+  ansible.builtin.assert:
+    that: ansible_facts['default_ipv4']['address'] is defined
+    fail_msg: >-
+      {{ inventory_hostname }} has no IPv4 default route, so node-ip can't be
+      set. Wait for DHCPv4 and run again. Nothing was changed.
+    quiet: true
+
 # Configuration 
 - name: Token file (root-only)
   ansible.builtin.copy:

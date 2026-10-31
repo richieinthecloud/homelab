@@ -1,0 +1,41 @@
+# This tells Prometheus to scrape Argo CD's own metrics: which Applications are synced and healthy,
+# how long syncs take, git fetch errors, and how busy each component is.
+
+# Argo CD was installed from the plain install.yaml, which already ships these Services
+# (each with a port named 'metrics') and NetworkPolicies that allow scraping them from any 
+# namespace. Nothing changes on the Argo CD side. 
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argocd
+spec: 
+  namespaceSelector:
+    matchNames:
+      - argocd
+  selector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - argocd-metrics # application-controller: sync and health of every app
+          - argocd-server-metrics # API server and UI
+          - argocd-repo-server # fetches git and renders manifests
+          - argocd-applicationset-controller # manages ApplicationSets
+  endpoints:
+    - port: metrics
+    # Argo CD's dashboard expects the job names its Helm chart uses
+    # (e.g. argocd-repo-server-metrics). With the plain install, the job would be the 
+    # Service name instead (argocd-repo-server), and most panels would stay empty. 
+    # These rules rename the job to what the dashboard expects. argocd-server-metrics already matches
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_service_name]
+          regex: argocd-metrics
+          targetLabel: job
+          replacement: argocd-application-controller-metrics
+          action: replace
+        - sourceLabels: [__meta_kubernetes_service_name]
+          regex: (argocd-repo-server|argocd-applicationset-controller)
+          targetLabel: job
+          replacement: ${1}-metrics
+          action: replace

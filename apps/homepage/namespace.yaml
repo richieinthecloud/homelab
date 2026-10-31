@@ -1,0 +1,14 @@
+# The workload gets its own namespace.
+
+# Homepage is the first app here whose namespace can't contain everything it
+# does. It reads Ingresses and metrics across the whole cluster, which needs
+# cluster-scoped permissions (rbac.yaml). The namespace still scopes the pod;
+# it can't scope what the pod is allowed to read.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+    app.kubernetes.io/part-of: homelab

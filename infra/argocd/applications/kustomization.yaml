@@ -14,3 +14,10 @@ namespace: argocd
 resources:
   - galaga-app.yaml
   - longhorn-app.yaml
+  - monitoring-app.yaml
+  - monitoring-config-app.yaml
+  - blackbox-exporter-app.yaml
+  - smartctl-exporter-app.yaml
+  - loki-app.yaml
+  - alloy-app.yaml
+  - homepage-app.yaml

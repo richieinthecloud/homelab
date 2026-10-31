@@ -1,0 +1,280 @@
+# Grafana Alloy: one pod per node that collects logs and pushes them to Loki
+# (loki-app.yaml). Promtail did this job before; it's deprecated in favour of Alloy.
+
+# What each node sends:
+#  - pod logs:  every container on the node, read from /var/log/pods
+#  - journald:  k3s / k3s-agent (the cluster itself), iscsid (Longhorn volume
+#               attach), ssh (logins)
+#  - kernel:    OOM kills, disk and USB errors, thermal throttling
+#  - events:    Kubernetes events, collected by one pod only (clustering, below)
+# Node streams carry instance=<node name>, the same label Prometheus uses.
+
+# Alloy's UI shows the pipeline and what each step is doing:
+#    kubectl -n monitoring port-forward ds/alloy 12345
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy
+  namespace: argocd
+  finalizers:
+    # Deleting this Application removes Alloy too. Safe: logs already sent stay in Loki.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: alloy
+    targetRevision: 1.14.3 # Alloy v1.21.2
+    helm:
+      valuesObject:
+        fullnameOverride: alloy
+
+        alloy:
+          # The pipeline, in Alloy's own config language. The chart passes this through
+          # Helm's tpl, so never use {{ }} in it.
+          configMap:
+            content: |
+              // ---- Pod logs -------------------------------------------------------------
+              // Find the pods on this node only (HOSTNAME is set to the node name by the chart).
+              discovery.kubernetes "pods" {
+                role = "pod"
+                selectors {
+                  role  = "pod"
+                  field = "spec.nodeName=" + sys.env("HOSTNAME")
+                }
+              }
+
+              // Turn each container into a log file path and a few labels.
+              discovery.relabel "pods" {
+                targets = discovery.kubernetes.pods.targets
+
+                // containerd writes /var/log/pods/<namespace>_<pod>_<uid>/<container>/<restart>.log
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+                  separator     = "/"
+                  target_label  = "__path__"
+                  replacement   = "/var/log/pods/*$1/*.log"
+                  action        = "replace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_namespace"]
+                  target_label  = "namespace"
+                  action        = "replace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_name"]
+                  target_label  = "pod"
+                  action        = "replace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_container_name"]
+                  target_label  = "container"
+                  action        = "replace"
+                }
+                // app: the app.kubernetes.io/name label, or the plain 'app' label if that's all
+                // the pod has. Loki derives service_name from it.
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
+                  separator     = ";"
+                  regex         = ";*([^;]+).*"
+                  target_label  = "app"
+                  action        = "replace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_node_name"]
+                  target_label  = "instance"
+                  action        = "replace"
+                }
+                rule {
+                  target_label = "job"
+                  replacement  = "pods"
+                  action       = "replace"
+                }
+              }
+
+              loki.source.file "pods" {
+                targets    = discovery.relabel.pods.output
+                forward_to = [loki.process.pods.receiver]
+                // __path__ above is a glob (the uid is part of a longer folder name, and the
+                // file name is the restart count), so expand it.
+                file_match {
+                  enabled = true
+                }
+              }
+
+              // Strip the prefix containerd adds to every line (timestamp, stdout/stderr, and
+              // whether the line was split), join split lines, and use containerd's timestamp.
+              // 'filename' (added by loki.source.file) changes on every container restart, which
+              // would start a new stream each time; pod + container already say where it's from.
+              loki.process "pods" {
+                forward_to = [loki.write.default.receiver]
+
+                stage.cri {}
+
+                stage.label_drop {
+                  values = ["filename"]
+                }
+              }
+
+              // ---- journald ----------------------------------------------------------------
+              // The host's journal, through the /var/log mount (it's persistent on all nodes).
+              // Several matches on the same field are OR'ed by journald.
+              loki.source.journal "units" {
+                path          = "/var/log/journal"
+                matches       = "_SYSTEMD_UNIT=k3s.service _SYSTEMD_UNIT=k3s-agent.service _SYSTEMD_UNIT=iscsid.service _SYSTEMD_UNIT=ssh.service"
+                relabel_rules = loki.relabel.journal.rules
+                labels        = { job = "journal" }
+                forward_to    = [loki.write.default.receiver]
+              }
+
+              // Kernel messages: OOM kills, disk and USB errors, thermal throttling. A separate
+              // source because journald can't OR matches on different fields.
+              loki.source.journal "kernel" {
+                path          = "/var/log/journal"
+                matches       = "_TRANSPORT=kernel"
+                relabel_rules = loki.relabel.journal.rules
+                labels        = { job = "kernel" }
+                forward_to    = [loki.write.default.receiver]
+              }
+
+              // Rules only, used by both journal sources above (forward_to is required but unused).
+              loki.relabel "journal" {
+                forward_to = []
+
+                rule {
+                  source_labels = ["__journal__systemd_unit"]
+                  target_label  = "unit"
+                  action        = "replace"
+                }
+                rule {
+                  source_labels = ["__journal_priority_keyword"]
+                  target_label  = "level"
+                  action        = "replace"
+                }
+                rule {
+                  source_labels = ["__journal__hostname"]
+                  target_label  = "instance"
+                  action        = "replace"
+                }
+              }
+
+              // ---- Kubernetes events ---------------------------------------------------------
+              // Pulled, scheduled, BackOff, FailedMount, Evicted... Kubernetes only keeps events
+              // for an hour; this keeps them for Loki's 7 days. Events come from the API, not
+              // from a node, so only one Alloy pod may collect them or each would be stored three
+              // times. With clustering on, the pods agree on one owner and hand it over if that
+              // node goes down.
+              loki.source.kubernetes_events "events" {
+                job_name   = "events"
+                forward_to = [loki.process.events.receiver]
+
+                clustering {
+                  enabled = true
+                }
+              }
+
+              // Each event is one logfmt line: name, kind, reason, type, count, msg and more.
+              // 'type' (Normal or Warning) becomes a label so warnings are one click away.
+              // 'instance' would be the component's name, not a node, so it's dropped.
+              loki.process "events" {
+                forward_to = [loki.write.default.receiver]
+
+                // On its first start (or when another node takes over) the collector
+                // sends every event the API still holds, some weeks old. Loki refuses
+                // anything older than 7 days with an error; drop those quietly here.
+                stage.drop {
+                  older_than = "167h"
+                  drop_counter_reason = "older_than_loki_retention"
+                }
+
+                stage.logfmt {
+                  mapping = { type = "" }
+                }
+
+                stage.labels {
+                  values = { type = "" }
+                }
+
+                stage.label_drop {
+                  values = ["instance"]
+                }
+              }
+
+
+              // ---- Output --------------------------------------------------------------------
+              loki.write "default" {
+                endpoint {
+                  url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+                }
+              }
+
+          # The three pods form a cluster so that work which must happen once (the
+          # Kubernetes events) runs on exactly one of them. Pod logs and the journal
+          # don't use it: each pod still reads its own node.
+          clustering:
+            enabled: true
+
+
+          # Where Alloy remembers how far it has read each log file and the journal.
+          # A hostPath (below), so a restarted pod carries on instead of re-sending.
+          storagePath: /var/lib/alloy/data
+
+          # Don't send anonymous usage stats to Grafana Labs.
+          enableReporting: false
+
+          mounts:
+            # The host's /var/log, read-only: pod logs and the persistent journal.
+            varlog: true
+            extra:
+              - name: data
+                mountPath: /var/lib/alloy/data
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+
+        controller:
+          type: daemonset
+          volumes:
+            extra:
+              - name: data
+                hostPath:
+                  path: /var/lib/alloy/data
+                  type: DirectoryOrCreate
+
+        # The chart's default ClusterRole can read every Secret and ConfigMap in the
+        # cluster, for Alloy components this config doesn't use.
+        # Only what's needed: 
+        # pods for discovery.kubernetes, events for loki.source.kubernetes_events.
+        rbac:
+          rules:
+            - apiGroups: [""]
+              resources: ["pods", "events"]
+              verbs: ["get", "list", "watch"]
+
+        # Alloy's own metrics (lines read, bytes sent, push errors to Loki).
+        serviceMonitor:
+          enabled: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true

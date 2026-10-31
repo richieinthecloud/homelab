@@ -1,0 +1,10 @@
+# Managed by Ansible (homelab/ansible/roles/host_metrics).
+[Unit]
+Description=Write host metrics for node-exporter every 15 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+
+[Install]
+WantedBy=timers.target

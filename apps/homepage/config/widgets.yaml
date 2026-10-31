@@ -1,0 +1,22 @@
+# Info widgets: the row along the top of the page.
+
+# Cluster-wide and per-node CPU and memory, from the metrics-server k3s bundles.
+# Reads through the ClusterRole in rbac.yaml (nodes, metrics.k8s.io), so nothing
+# else is needed. If the bars show but read zero, check metrics-server first:
+#   kubectl top nodes
+- kubernetes:
+    cluster:
+      show: true
+      cpu: true
+      memory: true
+      showLabel: true
+      label: cluster
+    nodes:
+      show: true
+      cpu: true
+      memory: true
+      showLabel: true
+
+- search:
+    provider: duckduckgo
+    target: _blank

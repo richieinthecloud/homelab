@@ -1,0 +1,306 @@
+# kube-prometheus-stack: Prometheus, Grafana, node-exporter, kube-state-metrics and
+# the Prometheus Operator, installed as one Helm chart. Same shape as longhorn-app.yaml:
+# no manifests under 'apps/', ArgoCD pulls the chart and renders it with the values below.
+
+# What this gives you on day one:
+#  - node-exporter on all three nodes: CPU, memory, disk, network, temperatures, fans,
+#    the MacBook's battery, clock sync
+#  - kube-state-metrics + kubelet: pod restarts, PVC fill, requests vs actual usage
+#  - Grafana at http://grafana.homelab.local with the chart's built-in Kubernetes
+#    dashboards, plus Node Exporter Full in a 'Homelab' folder
+
+# Before the first sync:
+# 1. Create the Grafana admin secret by hand. This repo is public, so the password
+#    never goes in git -- the chart only references the secret by name:
+#      kubectl create namespace monitoring
+#      kubectl -n monitoring create secret generic grafana-admin \
+#        --from-literal=admin-user=admin \
+#        --from-literal=admin-password='<choose one>'
+# 2. Add grafana.homelab.local to the hosts file on the machine you browse from,
+#    pointing at the HP's IP (same as galaga.homelab.local).
+
+# Prometheus has no login of its own, so it gets no Ingress. Reach it with:
+#    kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090
+# Status -> Targets should show every target UP.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  # No finalizer, same as Longhorn. Removing this Application should not cascade into
+  # deleting the CRDs, because deleting a CRD deletes every ServiceMonitor, PrometheusRule
+  # and ScrapeConfig built on it. Uninstalling monitoring should be deliberate and manual.
+spec:
+  project: default
+
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    # Major versions of this chart can carry breaking changes. Read the chart's
+    # "Upgrading" notes before bumping the major number.
+    targetRevision: 92.3.0
+    helm:
+      valuesObject:
+        # k3s-specific: components that don't exist as separate pods 
+        # k3s runs the controller-manager, scheduler and kube-proxy inside the single
+        # 'k3s server' process. Left enabled, the chart scrapes pods that will never exist:
+        # permanently DOWN targets and alerts that fire forever. Disabling a component here
+        # also drops its alert rules.
+        kubeControllerManager:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeProxy:
+          enabled: false
+        # etcd runs embedded in k3s on the HP and is scraped by
+        # apps/monitoring/scrapeconfigs/k3s-etcd.yaml (needs etcd-expose-metrics in the k3s
+        # config). 'enabled: true' keeps the chart's etcd alerts and dashboard; its own
+        # Service and ServiceMonitor stay off because there is no etcd pod for them to find.
+        kubeEtcd:
+          enabled: true
+          service:
+            enabled: false
+          serviceMonitor:
+            enabled: false
+
+        # Prometheus Operator 
+        prometheusOperator:
+          # The webhooks only validate PrometheusRule syntax. Their cert-patch job rewrites
+          # caBundle in-cluster after every sync, which selfHeal would fight forever.
+          admissionWebhooks:
+            enabled: false
+          # The operator's TLS cert is created by that same webhook job. With the webhooks
+          # off it never appears, and the operator pod waits forever for the missing secret.
+          tls:
+            enabled: false
+
+        # Prometheus 
+        prometheus:
+          prometheusSpec:
+            scrapeInterval: 30s # half the storage and CPU of 15s; plenty at this size
+            evaluationInterval: 30s
+            retention: 7d
+            # Prometheus deletes old data at whichever limit it hits first. Kept below the
+            # PVC size so the volume can never fill completely.
+            retentionSize: 8GB
+
+            # By default Prometheus only picks up monitors carrying this chart's release
+            # label, so anything written by hand later (Longhorn, ArgoCD, Traefik, the etcd
+            # ScrapeConfig) would be silently ignored. Setting each to 'false' prompts Prometheus to
+            # discover all of them.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            probeSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            scrapeConfigSelectorNilUsesHelmValues: false
+
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: longhorn # explicit declaration because longhorn is not the default class
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      # Longhorn keeps 2 replicas, so this uses 20Gi of real disk split
+                      # across the MacBook and the Optiplex.
+                      storage: 10Gi
+
+            # if the HP isdown, Prometheus can still start elsewhere, 
+            # and its Longhorn volume follows it.
+            affinity:
+              nodeAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    preference:
+                      matchExpressions:
+                        - key: node-role.kubernetes.io/control-plane
+                          operator: Exists
+
+            resources:
+              requests:
+                cpu: 100m
+                memory: 1Gi
+              # No memory limit on purpose. Too low a limit gives an OOMKill loop instead of
+              # slow queries. retention, retentionSize and scrapeInterval are the real controls.
+
+        # node-exporter
+        prometheus-node-exporter:
+          extraArgs:
+            # The first two are kube-prometheus-stack's own defaults. They're repeated here
+            # because setting extraArgs replaces the chart's list instead of adding to it;
+            # without them, disk-space metrics would fill up with container mounts.
+            - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/containerd/.+|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
+            - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|erofs)$
+            # systemd: whether the services the cluster depends on are running.
+            # k3s / k3s-agent    the cluster itself (server on the HP, agent on the workers)
+            # iscsid, multipathd Longhorn can't attach volumes without them
+            # systemd-timesyncd  clock sync (or chrony, if installed); etcd and Longhorn need it
+            # ssh                how you (and Ansible) reach the nodes
+            - --collector.systemd
+            - --collector.systemd.unit-include=(k3s|k3s-agent|iscsid|multipathd|systemd-timesyncd|chrony)\.service|ssh\.(service|socket)
+            # Restart counts, needed by the chart's NodeSystemdServiceCrashlooping alert.
+            - --collector.systemd.enable-restarts-metrics
+            # Host checks written by Ansible's host_metrics role (updates, reboot required,
+            # etcd snapshot age, k3s cert expiry). Read through the host's root filesystem, 
+            # which the chart already mounts at /host/root, so no extra mount is needed.
+            - --collector.textfile.directory=/host/root/var/lib/node_exporter/textfile
+          extraHostVolumeMounts:
+            # The systemd collector asks systemd over D-Bus. Read-only access to the host's
+            # system bus socket is all it needs; node-exporter stays unprivileged.
+            - name: dbus
+              hostPath: /run/dbus/system_bus_socket
+              mountPath: /var/run/dbus/system_bus_socket
+              type: Socket
+              readOnly: true
+          # Containerd's default AppArmor profile blocks D-Bus, so the systemd collector
+          # above couldn't talk to systemd (the kernel logged an AppArmor DENIED every
+          # scrape). Unconfined lifts that for this container only. node-exporter already
+          # sees the host's /proc, /sys and root filesystem, so this adds little.
+          containerSecurityContext:
+            readOnlyRootFilesystem: true # the chart's default; repeated so it's obvious
+            appArmorProfile:
+              type: Unconfined
+
+        # Alertmanager
+        # Receives firing alerts from Prometheus, groups them, and sends them to Slack.
+        # Slack webhook URLs and the healthchecks.io ping URL are secrets, created by hand
+        # (this repo is public). The config below only names the files they're mounted as.
+        alertmanager:
+          enabled: true
+          alertmanagerSpec:
+            # Mounted at /etc/alertmanager/secrets/alertmanager-receivers/<key>
+            secrets:
+              - alertmanager-receivers
+            # No Longhorn volume on purpose: if Longhorn broke, an Alertmanager that needs
+            # it couldn't start to tell you. The cost: silences reset when the pod restarts.
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+          config:
+            route:
+              # One message per alert type per namespace, not one per pod.
+              group_by: ['alertname', 'namespace']
+              group_wait: 30s
+              group_interval: 5m
+              # Anything not matched below (warnings): quiet channel, reminded once a day.
+              receiver: slack-warnings
+              repeat_interval: 24h
+              routes:
+                # Dead man's switch. Watchdog always fires; forwarding it every minute tells
+                # healthchecks.io the cluster is alive. If the pings stop, healthchecks.io
+                # alerts you from outside the house.
+                - receiver: healthchecks
+                  matchers: ['alertname = "Watchdog"']
+                  group_wait: 0s
+                  group_interval: 1m
+                  repeat_interval: 1m
+                # Never notify.
+                - receiver: 'null'
+                  matchers: ['alertname = "InfoInhibitor"']
+                - receiver: 'null'
+                  matchers: ['severity = "info"']
+                # Critical: the channel whose notifications are on. Repeats every 4h until fixed.
+                - receiver: slack-critical
+                  matchers: ['severity = "critical"']
+                  repeat_interval: 4h
+            receivers:
+              - name: 'null'
+              - name: healthchecks
+                webhook_configs:
+                  - url_file: /etc/alertmanager/secrets/alertmanager-receivers/healthchecks-url
+                    send_resolved: false
+              - name: slack-critical
+                slack_configs:
+                  - api_url_file: /etc/alertmanager/secrets/alertmanager-receivers/slack-critical-url
+                    send_resolved: true
+                    title: '{{ if eq .Status "firing" }}🔴{{ else }}✅{{ end }} {{ .CommonLabels.alertname }}'
+                    text: |-
+                      {{ range .Alerts }}{{ if .Labels.instance }}*{{ .Labels.instance }}*: {{ end }}{{ .Annotations.summary }}
+                      {{ with .Annotations.description }}{{ . }}{{ end }}
+                      {{ end }}
+              - name: slack-warnings
+                slack_configs:
+                  - api_url_file: /etc/alertmanager/secrets/alertmanager-receivers/slack-warnings-url
+                    send_resolved: true
+                    title: '{{ if eq .Status "firing" }}🟠{{ else }}✅{{ end }} {{ .CommonLabels.alertname }}'
+                    text: |-
+                      {{ range .Alerts }}{{ if .Labels.instance }}*{{ .Labels.instance }}*: {{ end }}{{ .Annotations.summary }}
+                      {{ with .Annotations.description }}{{ . }}{{ end }}
+                      {{ end }}
+
+        # Grafana 
+        grafana:
+          admin:
+            existingSecret: grafana-admin # created by hand, see the top of this file
+            userKey: admin-user
+            passwordKey: admin-password
+
+          # Stateless: no PVC. Dashboards come from this file and from ConfigMaps, so a
+          # restarted Grafana comes back identical. Anything built by clicking in the UI is
+          # lost on restart -- export it to git if it's worth keeping.
+          persistence:
+            enabled: false
+
+          ingress:
+            enabled: true
+            ingressClassName: traefik # the IngressClass k3s installs by default
+            hosts:
+              - grafana.homelab.local
+            # Puts Grafana on the homepage dashboard (apps/homepage). The chart runs
+            # every value through tpl, which only accepts strings: quote them all,
+            # "true" included, or the whole chart fails to render.
+            # Only the Ingress changes; Grafana itself doesn't restart.
+            annotations:
+              gethomepage.dev/enabled: "true"
+              gethomepage.dev/name: "Grafana"
+              gethomepage.dev/group: "Monitoring"
+              gethomepage.dev/icon: "grafana.png"
+              gethomepage.dev/description: "Metrics, logs and dashboards"
+              # Homepage looks for pods named after the Ingress, which the chart calls
+              # monitoring-grafana. The pods are labelled app.kubernetes.io/name=grafana.
+              gethomepage.dev/app: "grafana"
+
+          sidecar:
+            dashboards:
+              # Dashboards live in git as ConfigMaps under apps/monitoring/. These two settings
+              # let each ConfigMap choose its Grafana folder with a 'grafana_folder' annotation.
+              folderAnnotation: grafana_folder
+              provider:
+                foldersFromFilesStructure: true
+
+          # Loki (loki-app.yaml) for logs, next to the chart's Prometheus and
+          # Alertmanager datasources. Prometheus stays the default.
+          additionalDataSources:
+            - name: Loki
+              uid: loki # fixed, so dashboards in git can refer to it
+              type: loki
+              access: proxy
+              url: http://loki.monitoring.svc:3100
+              jsonData:
+                maxLines: 1000
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      # The Prometheus CRD is ~840 KiB, far over the 262144-byte limit for the annotation
+      # a client-side apply writes. Without this the first sync fails with
+      # "metadata.annotations: Too long".
+      - ServerSideApply=true

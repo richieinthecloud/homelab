@@ -1,0 +1,45 @@
+# Alerts on log lines, evaluated by Loki's ruler (not Prometheus): each 'expr' is a
+# LogQL query. Firing alerts go to the same Alertmanager as the Prometheus alerts, so
+# severity routes them exactly like rules/homelab.yaml.
+
+# This is a plain rules file, not a Kubernetes object. kustomization.yaml packs it into
+# the ConfigMap 'loki-rules', which loki-app.yaml mounts into Loki. Loki re-reads it
+# about a minute after a change; no restart needed.
+
+# Test a rule's query in Grafana first: Explore -> Loki -> Code, paste the expr.
+
+groups:
+  - name: homelab-logs
+    rules:
+      # The kernel killed a process to free memory. Covers both the whole node running
+      # out and a container hitting its own memory limit ("Memory cgroup out of memory").
+      - alert: NodeOOMKill
+        expr: 'sum by (instance) (count_over_time({job="kernel"} |~ "(?i)out of memory: killed process" [10m])) > 0'
+        labels:
+          severity: warning
+        annotations:
+          summary: "The kernel killed {{ $value }} process(es) for lack of memory in the last 10 minutes."
+          description: 'See which: Explore -> Loki: {job="kernel", instance="{{ $labels.instance }}"} |= "Killed process"'
+
+      # Read/write errors reported by the kernel: a failing disk or cable, or a
+      # filesystem that found corruption. Longhorn volumes are block devices too, so a
+      # volume that dies mid-write shows up here as well.
+      - alert: NodeDiskIOErrors
+        expr: 'sum by (instance) (count_over_time({job="kernel"} |~ "I/O error, dev|Buffer I/O error|EXT4-fs error|critical medium error" [10m])) > 0'
+        labels:
+          severity: warning
+        annotations:
+          summary: "The kernel reported {{ $value }} disk I/O error(s) in the last 10 minutes."
+          description: 'Check the Disk health dashboard (SMART) and Explore -> Loki: {job="kernel", instance="{{ $labels.instance }}"} |~ "I/O error|EXT4-fs error"'
+
+      # Kubernetes keeps failing to attach or mount a volume (usually Longhorn) for a
+      # pod. One failure while a volume moves between nodes is normal; 10 minutes of
+      # them is not.
+      - alert: VolumeMountFailing
+        expr: 'sum by (namespace) (count_over_time({job="events", type="Warning"} |~ "reason=(FailedMount|FailedAttachVolume)" [10m])) > 0'
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pods in {{ $labels.namespace }} can't attach or mount their volumes."
+          description: 'Explore -> Loki: {job="events", namespace="{{ $labels.namespace }}"} |~ "FailedMount|FailedAttachVolume"'

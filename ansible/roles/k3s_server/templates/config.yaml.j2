@@ -8,3 +8,13 @@ token-file: /etc/rancher/k3s/token
 # /var/lib/rancher/k3s/server/db/snapshots
 etcd-snapshot-schedule-cron: "{{ k3s_etcd_snapshot_cron }}"
 etcd-snapshot-retention: {{ k3s_etcd_snapshot_retention }}
+
+
+# Serve etcd metrics on the node IP as well as loopback, so Prometheus can scrape them
+# (port 2381: metrics and health checks only, not the etcd data API).
+etcd-expose-metrics: true
+
+# Pin the node's IP. Without it k3s auto-detects at every start and can pick
+# the global IPv6 address when DHCPv4 is late at boot, which no longer matches
+# the IPv4 peer URL etcd was created with: the API server never comes up.
+node-ip: {{ ansible_facts['default_ipv4']['address'] }}

@@ -1,0 +1,40 @@
+# Installs a small script and a timer that write host facts node-exporter can't see on
+# its own: pending OS updates, reboot required, etcd snapshot age (control-plane only)
+# and k3s certificate expiry. node-exporter's textfile collector picks the file up.
+# The script only reads; see files/homelab-host-metrics.sh.
+
+- name: Directory node-exporter reads extra metrics from
+  ansible.builtin.file:
+    path: /var/lib/node_exporter/textfile
+    state: directory
+    owner: root
+    group: root
+    mode: "0755" # node-exporter runs unprivileged and must be able to read it
+
+- name: Host metrics script
+  ansible.builtin.copy:
+    src: homelab-host-metrics.sh
+    dest: /usr/local/sbin/homelab-host-metrics
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Run host metrics now
+
+- name: Host metrics systemd units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - homelab-host-metrics.service
+    - homelab-host-metrics.timer
+  notify: Run host metrics now
+
+- name: Run the host metrics every 15 minutes
+  ansible.builtin.systemd_service:
+    name: homelab-host-metrics.timer
+    enabled: true
+    state: started
+    daemon_reload: true

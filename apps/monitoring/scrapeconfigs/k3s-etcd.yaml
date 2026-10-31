@@ -1,0 +1,34 @@
+# etcd: the database that holds the whole cluster's state. k3s runs it embedded in the
+# 'k3s server' process on the HP, so there is no etcd pod or Service to point a
+# ServiceMonitor at. This finds the control-plane node through Kubernetes and scrapes
+# its etcd metrics port directly, without hardcoding an IP in this public repo.
+
+# Needs 'etcd-expose-metrics: true' in the k3s server config (Ansible, k3s_server role).
+# Without it, etcd only serves metrics on 127.0.0.1 and this target shows DOWN.
+
+# Port 2381 serves metrics and health checks only, not the etcd data API.
+
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: k3s-etcd
+spec:
+  # kube-prometheus-stack's etcd alerts and dashboard look for a job containing 'etcd'.
+  jobName: kube-etcd
+  scheme: HTTP
+  kubernetesSDConfigs:
+    - role: Node
+  relabelings:
+    # Only the control-plane node runs etcd.
+    - sourceLabels: [__meta_kubernetes_node_label_node_role_kubernetes_io_control_plane]
+      regex: "true"
+      action: keep
+    # Node discovery hands us the kubelet port (10250); swap it for etcd's metrics port.
+    - sourceLabels: [__address__]
+      regex: '([^:]+)(?::\d+)?'
+      replacement: '${1}:2381'
+      targetLabel: __address__
+      action: replace
+    - sourceLabels: [__meta_kubernetes_node_name]
+      targetLabel: instance
+      action: replace

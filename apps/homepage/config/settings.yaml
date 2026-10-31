@@ -1,0 +1,31 @@
+# After an edit, ArgoCD rolls the pod (see kustomization.yaml). If the page still
+# looks old, click the refresh icon at the bottom right: it clears homepage's
+# cached page data.
+
+title: Homelab
+description: k3s homelab dashboard
+
+headerStyle: boxed
+
+# A green dot per service instead of the raw response time / pod status text.
+statusStyle: dot
+
+# Group order on the page. Only list groups that have something in them: a group
+# named here with no services still gets an empty heading. Add a group here in the
+# same commit as the first Ingress annotated with it.
+#
+# Service and bookmark groups must not share a name, or one hides the other --
+# hence "Links" for the bookmarks.
+layout:
+  Games:
+    style: row
+    columns: 3
+  Monitoring:
+    style: row
+    columns: 3
+  Cluster:
+    style: row
+    columns: 3
+  Links:
+    style: row
+    columns: 4
