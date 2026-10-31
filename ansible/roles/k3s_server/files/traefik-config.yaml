@@ -1,0 +1,15 @@
+# Overrides values in k3s's bundled Traefik chart.
+# Must be named "Traerik" in kube-system to match k3s's HelmChart,
+# otherwise k3s would just ignore it.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ingressRoute:
+      dashboard:
+        # Routes /dashboard and /api to Traefik's built-in dashboard
+        enabled: true
+    # Add your Traefik overrides here

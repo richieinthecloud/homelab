@@ -56,6 +56,17 @@
   diff: false   # never print the token, even with --diff
   notify: Restart k3s
 
+# Customizes k3s's bundled Traefik. K3s watches this folder and applies changes
+# on its own, so no "Restart k3s" hanlder is needed. Helm replaces the Traefik
+# pod, so ingress (galaga, homepage, grafana, immich) drops for a few seconds while it reconfigures.
+- name: Traefik customizations (HelmChartConfig)
+  ansible.builtin.copy:
+    src: traefik-config.yaml
+    dest: /var/lib/rancher/k3s/server/manifests/traefik-config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
 - name: k3s server config
   ansible.builtin.template:
     src: config.yaml.j2
