@@ -1,6 +1,6 @@
 # Entrypoint for the app-of-apps Application defined in
 # clusters/homelab/argocd-bootstrap.yaml.
-#
+
 # Adding a new workload to the cluster is now a two-step change in one commit:
 #   1. write the manifests under apps/<name>/
 #   2. add an Application here and list it below
@@ -21,3 +21,5 @@ resources:
   - loki-app.yaml
   - alloy-app.yaml
   - homepage-app.yaml
+  - cert-manager-app.yaml
+  - cert-manager-config-app.yaml

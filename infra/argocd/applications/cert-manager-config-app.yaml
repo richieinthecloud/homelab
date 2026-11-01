@@ -1,0 +1,41 @@
+# What cert-manager issues for the homelab: our own root CA, and one wildcard
+# certificate for *.homelab.local that Traefik serves for every site.
+# Manifests in apps/cert-manager/; the engine is cert-manager-app.yaml.
+#
+# No resources-finalizer, on purpose: deleting this Application must never take
+# the root CA with it. A new root means re-trusting it on every device.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-config
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/richieinthecloud/homelab
+    targetRevision: main
+    path: apps/cert-manager # kustomization.yaml in here is the entrypoint
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager # each manifest also names its own namespace
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      # On a fresh cluster this can sync before cert-manager's CRDs exist. The
+      # retries (plus SkipDryRunOnMissingResource below) carry it over that gap.
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      # Don't fail the whole sync's dry run just because the Certificate kind
+      # isn't known yet; apply it once cert-manager has installed the CRDs.
+      - SkipDryRunOnMissingResource=true

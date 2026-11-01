@@ -1,0 +1,29 @@
+# One certificate for every site: *.homelab.local covers galaga, grafana,
+# homepage, traefik, argocd and anything added later, with no per-app TLS config.
+# Traefik serves it as its default (traefik-tlsstore.yaml).
+#
+# Trade-off: one key for every site. If it leaked, every site could be
+# impersonated on the LAN, but only until the next renewal, and only on
+# homelab.local (the root's name constraint). Per-app certificates are the
+# step up if that ever matters.
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: homelab-wildcard
+  namespace: kube-system # must sit next to the TLSStore that uses it
+spec:
+  secretName: homelab-wildcard-tls
+  dnsNames:
+    - "*.homelab.local" # one level deep: galaga.homelab.local, not a.b.homelab.local
+    - homelab.local # the wildcard doesn't cover the bare name
+  duration: 2160h # 90 days
+  renewBefore: 720h # renew with 30 days left, so a failed renewal has a month to be noticed
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always # fresh key on every renewal; nobody pins a leaf
+  issuerRef:
+    name: homelab-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
