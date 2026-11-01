@@ -1,0 +1,27 @@
+# Kustomize entrypoint for the homelab's certificates. Synced by the
+# cert-manager-config Application (infra/argocd/applications/cert-manager-config-app.yaml).
+
+# The chain, top to bottom:
+
+#   selfsigned (ClusterIssuer)       signs exactly one thing: the root below
+#     -> homelab-root-ca (Certificate, 10 years) -- the one you trust on your devices
+#       -> homelab-ca (ClusterIssuer)   signs everything else with that root
+#         -> homelab-wildcard (Certificate, 90 days, *.homelab.local)
+#           -> Traefik's default TLSStore: every site behind Traefik serves it
+
+# No 'namespace:' here: the root lives in cert-manager (where a ClusterIssuer
+# looks for its Secret) and the wildcard lives in kube-system (next to Traefik).
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - root-ca.yaml
+  - wildcard-certificate.yaml
+  - traefik-tlsstore.yaml
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: homelab
+      app.kubernetes.io/managed-by: argocd

@@ -1,0 +1,16 @@
+# Makes the wildcard Traefik's default certificate: any HTTPS request on
+# websecure that no other certificate matches gets this one. That is every
+# site today, since no Ingress or IngressRoute brings its own.
+
+# Traefik watches TLSStore objects and swaps certificates live: no restart, no
+# HelmChartConfig change. Until the Secret exists, Traefik keeps serving its own
+# self-signed fallback. Removing this object puts that fallback back.
+
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default # Traefik only reads the TLSStore named 'default'
+  namespace: kube-system # same namespace as the Secret it points to
+spec:
+  defaultCertificate:
+    secretName: homelab-wildcard-tls

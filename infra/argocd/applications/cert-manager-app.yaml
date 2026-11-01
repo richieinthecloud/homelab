@@ -1,0 +1,57 @@
+# cert-manager: issues and renews TLS certificates inside the cluster. This
+# Application installs the engine (the official chart from charts.jetstack.io);
+# cert-manager-config-app.yaml holds what it issues (the homelab CA and the
+# wildcard certificate). Same split as monitoring / monitoring-config.
+#
+# No resources-finalizer, same stance as Longhorn: if this Application is ever
+# removed, cert-manager keeps running. Certificates are infrastructure; removing
+# them should be a deliberate, manual act.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.21.3 # the one line that changes on upgrade. Read the release notes first.
+    helm:
+      valuesObject:
+        crds:
+          # Install the CRDs (Certificate, Issuer, ClusterIssuer, ...) with the chart.
+          enabled: true
+          # ...and never delete them on uninstall. Deleting a CRD deletes every
+          # object of that kind, so an accidental uninstall would wipe the CA's
+          # Certificate along with it. This is the chart default; written out on purpose.
+          keep: true
+
+        prometheus:
+          # A ServiceMonitor for cert-manager's metrics: certificate expiry times and
+          # renewal errors. Prometheus picks it up without labels
+          # (serviceMonitorSelectorNilUsesHelmValues: false in monitoring-app.yaml).
+          servicemonitor:
+            enabled: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      # The CRDs are large; client-side apply can't store them in its annotation.
+      - ServerSideApply=true
