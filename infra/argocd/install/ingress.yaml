@@ -1,0 +1,33 @@
+# The way in to Argo CD's UI, through Traefik, over HTTPS only.
+
+# Argo CD itself serves plain HTTP (server.insecure in kustomization.yaml), so
+# Traefik is the only TLS hop: browser --HTTPS--> Traefik --HTTP--> argocd-server.
+# Until cert-manager exists, Traefik serves its self-signed default cert, so the
+# browser warns once.
+
+# CLI: Traefik won't route Argo CD's native gRPC here without extra work, so use
+#   argocd login argocd.homelab.local --grpc-web
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+  annotations:
+    # websecure (443) only. Without this the route is also on 'web' (80), and
+    # the Argo CD login would cross the network unencrypted.
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik # the IngressClass k3s installs by default
+  # No 'tls' block: the chart turns TLS on for the whole websecure entrypoint
+  # (same as the Traefik dashboard). cert-manager adds one later.
+  rules:
+    - host: argocd.homelab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  name: http # Traefik will be the TLS provider. Argo CD will not have its own internal TLS.

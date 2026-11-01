@@ -15,9 +15,10 @@
 # homepage can run read-only queries against Prometheus through it -- every metric,
 # no login. Fine on a trusted LAN; homepage's own login (phase 4) closes it.
 #
-# Neither has an Ingress, so href points at the port-forward each is reached
-# through (monitoring-app.yaml, argocd-bootstrap.yaml). The link only works while
-# that port-forward is running.
+# Prometheus has no Ingress, so its href points at the port-forward it is reached
+# through (monitoring-app.yaml); that link only works while the port-forward runs.
+# Argo CD's Ingress (infra/argocd/install/ingress.yaml) lives outside what homepage
+# discovers by annotatrion, so its tile stays here, linking to the real hostname.
 #
 # Counts end in 'or vector(0)': a count over nothing returns no result at all,
 # which the widget shows as '-' rather than 0.
@@ -51,7 +52,7 @@
 - Cluster:
     - Argo CD:
         icon: argo-cd.png
-        href: https://localhost:8080
+        href: https://argocd.homelab.local
         description: GitOps
         # Status dot: every pod in the argocd namespace. Argo CD's components share
         # no common label, and an empty podSelector selects the whole namespace.

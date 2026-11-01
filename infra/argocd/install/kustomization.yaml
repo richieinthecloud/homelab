@@ -1,0 +1,41 @@
+# Argo CD's own install, as code. Replaces the bare `kubectl apply` of
+# stable/install.yaml from the bootstrap steps (clusters/homelab/argocd-bootstrap.yaml).
+#
+# Applied by hand, not by Argo CD. A bad commit here could break the tool that
+# would otherwise fix it; applying by hand keeps a person in the loop:
+#
+#   kubectl diff  -k infra/argocd/install --server-side     # preview
+#   kubectl apply -k infra/argocd/install --server-side --force-conflicts
+#
+# --server-side: the CRDs in install.yaml are too big for the annotation that
+# client-side apply stores (Argo CD's docs ask for server-side for this reason).
+# --force-conflicts: take over fields the old client-side apply owned.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: argocd
+
+resources:
+  # Pinned, never 'stable': upgrading Argo CD should be this one line changing.
+  # Set it to the version already running, or the first apply is also an upgrade:
+  #   kubectl -n argocd get deploy argocd-server -o jsonpath='{.spec.template.spec.containers[0].image}'
+  # 'v3.5.6' makes kustomize fail loudly instead of guessing.
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.6/manifests/install.yaml
+  - ingress.yaml
+
+patches:
+  # Strategic-merge patch: merges into the ConfigMap install.yaml creates.
+  # (A JSON-patch 'add /data/...' would fail: upstream ships it with no data block.)
+  # argocd-server reads this only at startup: `kubectl -n argocd rollout restart
+  # deploy argocd-server` after changing it.
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: argocd-cmd-params-cm
+      data:
+        # Serve plain HTTP inside the cluster; Traefik does TLS at the edge.
+        # One place for certificates (Traefik, later cert-manager) instead of
+        # Argo CD's own self-signed one that nothing manages.
+        server.insecure: "true"
